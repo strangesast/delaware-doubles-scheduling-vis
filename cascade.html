@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>First-game scheduling — demo</title>
+<link rel="stylesheet" href="ring.css">
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+</head>
+<body>
+  <header>
+    <h1>First-game scheduling on a ring of teams</h1>
+    <p>Teams sit on a ring, each scheduled against its 2 neighbours. Click a link to set who plays
+       first — a team can only play one other at a time, so the links form a matching.</p>
+    <nav><a class="active" href="cascade.html">Demo</a><a href="schedule.html">Real schedule</a></nav>
+  </header>
+
+  <div class="wrap">
+    <section class="panel">
+      <div class="cap">Ring</div>
+      <div class="cap2">Drag the slider to change the team count; count &amp; links persist across refresh.</div>
+      <svg id="ringSvg"></svg>
+    </section>
+  </div>
+
+  <div class="legend">
+    <span><i class="dot" style="background:#22c55e;border-color:#15803d"></i> playing first (linked)</span>
+    <span><i class="dot" style="background:#f97316;border-color:#c2410c"></i> waiting (no link)</span>
+    <span><i class="sw" style="border-color:#15803d"></i> first-game link</span>
+  </div>
+
+  <div class="foot">A first-game assignment is a matching of the ring; with an odd team count one team always waits.</div>
+
+<script src="ring.js"></script>
+<script>
+  buildRing(d3.select('#ringSvg'), { key:'vb.ring' });
+</script>
+</body>
+</html>

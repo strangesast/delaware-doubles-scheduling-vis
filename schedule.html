@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Real league schedule — 3 pools</title>
+<link rel="stylesheet" href="ring.css">
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+</head>
+<body>
+  <header>
+    <h1>Real league schedule — 3 pools of 9</h1>
+    <p>Each pool is a ring: every team plays its two neighbours. Click a link to set who plays first.
+       A team can play only one other at a time, so the first-game links form a matching — and because
+       each pool has an odd number of teams (9), a perfect first round is impossible: someone always waits.</p>
+    <nav><a href="cascade.html">Demo</a><a class="active" href="schedule.html">Real schedule</a></nav>
+  </header>
+
+  <div class="wrap">
+    <section class="panel wide">
+      <div class="cap">Pool 1</div>
+      <div class="cap2">9 teams · one waits each round</div>
+      <svg id="p1"></svg>
+    </section>
+    <section class="panel wide">
+      <div class="cap">Pool 2</div>
+      <div class="cap2">9 teams · one waits each round</div>
+      <svg id="p2"></svg>
+    </section>
+    <section class="panel wide">
+      <div class="cap">Pool 3</div>
+      <div class="cap2">9 teams · one waits each round</div>
+      <svg id="p3"></svg>
+    </section>
+  </div>
+
+  <div class="legend">
+    <span><i class="dot" style="background:#22c55e;border-color:#15803d"></i> playing first (linked)</span>
+    <span><i class="dot" style="background:#f97316;border-color:#c2410c"></i> waiting (no link)</span>
+    <span><i class="sw" style="border-color:#15803d"></i> first-game link</span>
+  </div>
+
+  <div class="foot">The slider is disabled here — each pool's roster is fixed by the real schedule.</div>
+
+<script src="ring.js"></script>
+<script>
+  // Each pool listed in ring (cycle) order, so neighbours are real scheduled opponents.
+  const POOLS = {
+    p1: ["Gina/Chris","Angelene Belle/Nick","Carly/Alex","Michele/Justin","Laura/Jeff",
+         "Julie/Thom","Angela/Justin","Molly/Chris","Brittany/Shane"],
+    p2: ["Ashley/Dylan","Lauren/Greg","Haley/Anthony","Lindsay/Calvin","Kayla/Josh",
+         "Zoey/Shawn","Viktorija/Matt","Tori/Larry","Kaylee/Sam"],
+    p3: ["Jakki/Caan","Molly/Ryan","Sara/Shaun","Caitlyn/Joshua","Madi/Troy",
+         "Sofia/Jordan","Hannah/Taylor","Rebecca/Bryan","Sophia/Damian"],
+  };
+  buildRing(d3.select('#p1'), { key:'vb.pool.1', names:POOLS.p1, slider:false });
+  buildRing(d3.select('#p2'), { key:'vb.pool.2', names:POOLS.p2, slider:false });
+  buildRing(d3.select('#p3'), { key:'vb.pool.3', names:POOLS.p3, slider:false });
+</script>
+</body>
+</html>
