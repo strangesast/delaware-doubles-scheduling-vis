@@ -170,9 +170,10 @@ function buildRing(svgSel, opts = {}) {
       .on('click', (ev,d) => {
         const k = d.k, R = k, L = (k-1+n)%n;     // team k's right / left link
         const occupied = j => on(j) || on((j-1+n)%n);
-        if (on(R)) setEdge(L);                   // already matched on the right → toggle to the left
-        else if (on(L)) setEdge(R);              // already matched on the left  → toggle to the right
-        else {                                   // unmatched → take an unoccupied neighbour first
+        // cycle on repeated clicks: unmatched → right neighbour → left neighbour → unmatched
+        if (on(R)) setEdge(L);                    // playing the right neighbour → switch to the left
+        else if (on(L)) mask &= ~(1 << L);        // playing the left neighbour → clear it (unmatched)
+        else {                                    // unmatched → take an unoccupied neighbour first
           const rFree = !occupied((k+1)%n), lFree = !occupied((k-1+n)%n);
           setEdge(rFree || !lFree ? R : L);
         }
