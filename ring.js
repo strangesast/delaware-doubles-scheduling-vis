@@ -13,6 +13,23 @@ const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
 const lowBits = b => (1 << b) - 1;                       // bits 0..b-1
 const matchingMask = n => { let m=0; for (let k=0; k+1<n; k+=2) m |= 1<<k; return m; };
 
+// Break `total` into rings each AT LEAST `target` big: peel off target-sized rings and fold any
+// leftover smaller than the target into the last ring (e.g. total 10, target 4 → [4, 6]).
+const splitGroups = (total, target) => {
+  const g = Math.max(1, Math.floor(total / target));
+  return Array.from({ length: g }, (_, i) => i < g - 1 ? target : total - target * (g - 1));
+};
+
+// Keep the same number of `divisions` but resize them, preferring multiples of 4 so most groups
+// pair off cleanly; the leftover group carries the remainder (and the lone odd group when the
+// total is odd). Every group is AT LEAST 4. e.g. 27 into 3 → [8, 8, 11].
+const evenGroups = (total, divisions) => {
+  const D = Math.max(1, Math.min(divisions, Math.floor(total / 4)));   // every group >= 4
+  let base = Math.max(4, 4 * Math.round(total / D / 4));               // a multiple of 4 near the average
+  while (D > 1 && total - base * (D - 1) < 4) base -= 4;               // keep the leftover group >= 4
+  return Array.from({ length: D }, (_, i) => i < D - 1 ? base : total - base * (D - 1));
+};
+
 function buildRing(svgSel, opts = {}) {
   const names     = opts.names || null;                  // fixed roster → real names + fixed count
   const fixed     = !!names;
@@ -21,9 +38,8 @@ function buildRing(svgSel, opts = {}) {
   const extN      = (!fixed && opts.n != null) ? clamp(opts.n, MIN, MAX) : null;
   const useSlider  = opts.slider !== false && !fixed && extN == null;
 
-  const SIZE  = fixed ? 600 : 380;
-  const R     = 150;
-  const RNODE = fixed ? 16 : 22;
+  const R     = opts.r ?? 150;                                  // ring radius (override to pack compactly)
+  const RNODE = opts.rNode ?? Math.round(R * (fixed ? 16 : 22) / 150);
   const DUR   = 380;
 
   // persisted state "<n>:<edgeMask>" — edge bit k means team k plays team (k+1)%n
@@ -63,8 +79,15 @@ function buildRing(svgSel, opts = {}) {
     sliderLabel.text(`Teams: ${n}`);
   }
 
-  const root = svgSel.attr('viewBox', `0 0 ${SIZE} ${SIZE}`)
-    .append('g').attr('transform', `translate(${SIZE/2},${SIZE/2-4})`);
+  // draw into a caller-positioned group (compact, shared svg) or take over the whole svg
+  let root;
+  if (opts.cx != null) {
+    root = svgSel.append('g').attr('transform', `translate(${opts.cx},${opts.cy})`);
+  } else {
+    const SIZE = fixed ? 600 : 380;
+    root = svgSel.attr('viewBox', `0 0 ${SIZE} ${SIZE}`)
+      .append('g').attr('transform', `translate(${SIZE/2},${SIZE/2-4})`);
+  }
 
   function draw() {
     root.selectAll('*').remove();
@@ -118,6 +141,7 @@ function buildRing(svgSel, opts = {}) {
     const nodeG = root.append('g').selectAll('g').data(POS).join('g')
       .attr('class','node').attr('transform',d=>`translate(${d.x},${d.y})`);
     const dot = nodeG.append('circle').attr('r',RNODE).classed('team-out', true);
+    nodeG.append('title');                                  // hover tooltip (filled in by update)
     if (fixed) {
       nodeG.append('text').attr('class','name').each(function(d){
         const ux=d.x/R, uy=d.y/R, pad=RNODE+9;
@@ -133,11 +157,25 @@ function buildRing(svgSel, opts = {}) {
     const colorTeam = (team, live) =>
       dot.filter(d => d.k === team).classed('team-ok', live).classed('team-out', !live);
 
+    // hover tooltip text: who team k plays first, then second (or "either" when unmatched)
+    const titleFor = k => {
+      const me = labelOf(k), prevT = labelOf((k-1+n)%n), nextT = labelOf((k+1)%n);
+      if (on(k))         return `${me} plays ${nextT} THEN ${prevT}`;   // right link set
+      if (on((k-1+n)%n)) return `${me} plays ${prevT} THEN ${nextT}`;   // left link set
+      return `${me} plays ${nextT} OR ${prevT}`;                        // unmatched
+    };
+
     // click a team to connect one of its two links, then the other; hover highlights the team
     nodeG.style('cursor','pointer')
       .on('click', (ev,d) => {
-        const k = d.k;                          // its two links are edge k and edge k-1
-        if (on(k)) setEdge((k-1+n)%n); else setEdge(k);
+        const k = d.k, R = k, L = (k-1+n)%n;     // team k's right / left link
+        const occupied = j => on(j) || on((j-1+n)%n);
+        if (on(R)) setEdge(L);                   // already matched on the right → toggle to the left
+        else if (on(L)) setEdge(R);              // already matched on the left  → toggle to the right
+        else {                                   // unmatched → take an unoccupied neighbour first
+          const rFree = !occupied((k+1)%n), lFree = !occupied((k-1+n)%n);
+          setEdge(rFree || !lFree ? R : L);
+        }
         save(); update(true); emit();
       })
       .on('mouseenter', (ev,d) => highlightTeam(d.k, true))
@@ -203,6 +241,7 @@ function buildRing(svgSel, opts = {}) {
           }
         }
       });
+      nodeG.select('title').text(d => titleFor(d.k));
     }
 
     update(false);

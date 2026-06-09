@@ -44,6 +44,7 @@ html`<style>
 .vb .ring.hl  { stroke:#64748b; stroke-width:5; }
 .vb .half.hl  { stroke-width:13; }
 .vb circle.hl { stroke-width:4.5; }
+.vb .subcap   { fill:#475569; font-size:19px; font-weight:600; }   /* sub-ring caption */
 .vb .node .tlabel { fill:#fff; font-size:15px; font-weight:700; text-anchor:middle; dominant-baseline:central; }
 .vb .node .name   { fill:#1e293b; font-size:11px; font-weight:600; }
 </style>`
@@ -69,9 +70,8 @@ makeRing = {
     const extN      = (!fixed && opts.n != null) ? clamp(opts.n, MIN, MAX) : null;
     const useSlider  = opts.slider !== false && !fixed && extN == null;
 
-    const SIZE  = fixed ? 600 : 380;
-    const R     = 150;
-    const RNODE = fixed ? 16 : 22;
+    const R     = opts.r ?? 150;                                  // ring radius (override to pack compactly)
+    const RNODE = opts.rNode ?? Math.round(R * (fixed ? 16 : 22) / 150);
     const DUR   = 380;
 
     const saved  = (localStorage.getItem(key) || '').split(':');
@@ -108,8 +108,15 @@ makeRing = {
       sliderLabel.text(`Teams: ${n}`);
     }
 
-    const root = svgSel.attr('viewBox', `0 0 ${SIZE} ${SIZE}`)
-      .append('g').attr('transform', `translate(${SIZE/2},${SIZE/2-4})`);
+    // draw into a caller-positioned group (compact, shared svg) or take over the whole svg
+    let root;
+    if (opts.cx != null) {
+      root = svgSel.append('g').attr('transform', `translate(${opts.cx},${opts.cy})`);
+    } else {
+      const SIZE = fixed ? 600 : 380;
+      root = svgSel.attr('viewBox', `0 0 ${SIZE} ${SIZE}`)
+        .append('g').attr('transform', `translate(${SIZE/2},${SIZE/2-4})`);
+    }
 
     function draw() {
       root.selectAll('*').remove();
@@ -159,6 +166,7 @@ makeRing = {
       const nodeG = root.append('g').selectAll('g').data(POS).join('g')
         .attr('class','node').attr('transform',d=>`translate(${d.x},${d.y})`);
       const dot = nodeG.append('circle').attr('r',RNODE).classed('team-out', true);
+      nodeG.append('title');                                  // hover tooltip (filled in by update)
       if (fixed) {
         nodeG.append('text').attr('class','name').each(function(d){
           const ux=d.x/R, uy=d.y/R, pad=RNODE+9;
@@ -174,11 +182,25 @@ makeRing = {
       const colorTeam = (team, live) =>
         dot.filter(d => d.k === team).classed('team-ok', live).classed('team-out', !live);
 
+      // hover tooltip text: who team k plays first, then second (or "either" when unmatched)
+      const titleFor = k => {
+        const me = labelOf(k), prevT = labelOf((k-1+n)%n), nextT = labelOf((k+1)%n);
+        if (on(k))         return `${me} plays ${nextT} THEN ${prevT}`;   // right link set
+        if (on((k-1+n)%n)) return `${me} plays ${prevT} THEN ${nextT}`;   // left link set
+        return `${me} plays ${nextT} OR ${prevT}`;                        // unmatched
+      };
+
       // click a team to connect one of its two links, then the other; hover highlights the team
       nodeG.style('cursor','pointer')
         .on('click', (ev,d) => {
-          const k = d.k;                          // its two links are edge k and edge k-1
-          if (on(k)) setEdge((k-1+n)%n); else setEdge(k);
+          const k = d.k, R = k, L = (k-1+n)%n;     // team k's right / left link
+          const occupied = j => on(j) || on((j-1+n)%n);
+          if (on(R)) setEdge(L);                   // already matched on the right → toggle to the left
+          else if (on(L)) setEdge(R);              // already matched on the left  → toggle to the right
+          else {                                   // unmatched → take an unoccupied neighbour first
+            const rFree = !occupied((k+1)%n), lFree = !occupied((k-1+n)%n);
+            setEdge(rFree || !lFree ? R : L);
+          }
           save(); update(true); emit();
         })
         .on('mouseenter', (ev,d) => highlightTeam(d.k, true))
@@ -236,6 +258,7 @@ makeRing = {
             }
           }
         });
+        nodeG.select('title').text(d => titleFor(d.k));
       }
 
       update(false);
@@ -248,7 +271,7 @@ makeRing = {
   // Observable wrapper: build a self-contained container node and return it AS A VIEW —
   // node.value holds the current selection and an 'input' event fires whenever it changes,
   // so `viewof ring = makeRing(...)` exposes a live, reactive value.
-  return function makeRing(opts = {}) {
+  function makeRing(opts = {}) {
     const container = d3.create("div").attr("class", "vb panel" + (opts.names ? " wide" : ""));
     if (opts.title)    container.append("div").attr("class","cap").text(opts.title);
     if (opts.subtitle) container.append("div").attr("class","cap2").text(opts.subtitle);
@@ -263,7 +286,32 @@ makeRing = {
       }
     }));
     return node;
-  };
+  }
+  makeRing.buildRing = buildRing;   // expose the lower-level builder for compact packing
+  return makeRing;
+}
+```
+
+And one tiny helper (its own cell) that breaks a total number of teams into rings — each at
+least the target size, with any leftover folded into the last ring (10 with target 4 → 4 and 6):
+
+```js
+splitGroups = (total, target) => {
+  const g = Math.max(1, Math.floor(total / target));
+  return Array.from({ length: g }, (_, i) => i < g - 1 ? target : total - target * (g - 1));
+}
+```
+
+And one for the "optimal" reorganization — keep the same number of `divisions`, but resize them
+preferring multiples of 4 (so most groups pair off cleanly), with the leftover carrying the
+remainder. Every group is at least 4. e.g. 27 into 3 → `[8, 8, 11]`:
+
+```js
+evenGroups = (total, divisions) => {
+  const D = Math.max(1, Math.min(divisions, Math.floor(total / 4)));
+  let base = Math.max(4, 4 * Math.round(total / D / 4));
+  while (D > 1 && total - base * (D - 1) < 4) base -= 4;
+  return Array.from({ length: D }, (_, i) => i < D - 1 ? base : total - base * (D - 1));
 }
 ```
 
@@ -286,10 +334,24 @@ viewof teams = Inputs.range(
 ## Cell 5 — practice ring
 
 A ring to get a feel for it. Click the links between teams to pair them up, and use the slider
-above to add or remove teams. Your changes are saved automatically.
+above to add or remove teams. Tick the box to split everyone into separate rings (each at least 4),
+the way the real pools work. Your changes are saved automatically. _(Paste each block as its own cell.)_
 
 ```js
-demo = makeRing({ key: "vb.ring", n: teams, slider: false, title: `Demo Ring (${teams} teams)` })
+viewof split = Inputs.toggle({ label: "Split into rings of 4+", value: true })
+```
+```js
+demo = {
+  if (!split)
+    return makeRing({ key: "vb.ring", n: teams, slider: false, title: `Demo Ring (${teams} teams)` });
+  const wrap = d3.create("div").attr("class", "vb wrap");
+  splitGroups(teams, 4).forEach((size, i) =>
+    wrap.node().appendChild(
+      makeRing({ key: `vb.ring.${i}`, n: size, slider: false, title: `Ring ${i + 1} (${size} teams)` })
+    )
+  );
+  return wrap.node();
+}
 ```
 
 ---
@@ -314,30 +376,74 @@ schedule = [
 
 ## Cell 7 — the pools
 
-Each pool shown as a ring. Click the links to choose who each team plays first.
+Each pool shown as a ring; click the links to choose who plays first. Two optional hypotheticals
+that **compose**: "optimal" picks the divisions (reorganized into even groups, multiples of 4
+preferred), and "split" decides whether each division is broken into rings of 4+. With both on,
+e.g. 8 → two rings of 4 and 11 → a 4 and a 7. _(Paste each block as its own cell.)_
 
 ```js
+viewof hypothetical = Inputs.toggle({ label: "Split each division into rings of 4+ (hypothetical)", value: false })
+```
+```js
+viewof optimal = Inputs.toggle({ label: "Reorganize into optimal even groups (hypothetical)", value: false })
+```
+```js
 viewof pools = {
-  const wrap = d3.create("div").attr("class", "vb wrap");
-  const node = wrap.node();
-  const titles = [...new Set(schedule.map(d => d.pool))];   // distinct pools, in order
-  const values = new Map();
+  const root = d3.create("div").attr("class", "vb");
+  const node = root.node();
+  const titles = [...new Set(schedule.map(d => d.pool))];
+  const byPool = t => schedule.filter(d => d.pool === t).sort((a, b) => a.order - b.order).map(d => d.team);
+  const all = titles.flatMap(byPool);
+  const slices = (names, sizes) => { let i = 0; return sizes.map(s => names.slice(i, i += s)); };
 
-  const sync = () => {
-    node.value = titles.map(t => values.get(t));
-    node.dispatchEvent(new Event("input", { bubbles: true }));
+  const order = [], values = new Map();
+  const sync = () => { node.value = order.map(id => values.get(id)); node.dispatchEvent(new Event("input", { bubbles: true })); };
+  const mount = (svg, { id, key, names, cx, cy, r }) => {
+    order.push(id);
+    makeRing.buildRing(svg, { key, names, slider: false, cx, cy, r,
+      onChange: pairs => {
+        const playing = new Set(pairs.flat());
+        values.set(id, { title: id, names, pairs, waiting: names.filter(t => !playing.has(t)) });
+        sync();
+      } });
+  };
+  // pack a list of groups into one panel's svg as a d3 grid of rings
+  const packRings = (parent, title, groups, keyPrefix, cols) => {
+    const n = groups.length;
+    cols = cols || Math.ceil(Math.sqrt(n));
+    const rows = Math.ceil(n / cols);
+    const R = 105, slotW = 2 * R + 250, slotH = 2 * R + 96, W = slotW * cols, H = slotH * rows;
+    const panel = parent.append("div").attr("class", "vb panel").style("width", Math.min(1040, 320 * cols) + "px");
+    if (title) panel.append("div").attr("class", "cap").text(title);
+    const svg = panel.append("svg").attr("viewBox", `0 0 ${W} ${H}`);
+    const x = d3.scaleBand().domain(d3.range(cols)).range([0, W]);
+    const y = d3.scaleBand().domain(d3.range(rows)).range([0, H]);
+    groups.forEach((names, i) => {
+      const cx = x(i % cols) + x.bandwidth() / 2, top = y(Math.floor(i / cols)), size = names.length;
+      svg.append("text").attr("class", "subcap").attr("x", cx).attr("y", top + 26).attr("text-anchor", "middle")
+         .text(`${size} teams${size % 2 ? " · one waits" : " · nobody waits"}`);
+      mount(svg, { id: `${keyPrefix}#${i}`, key: `${keyPrefix}.${i}`, names, cx, cy: top + slotH / 2 + 14, r: R });
+    });
   };
 
-  for (const title of titles) {
-    const names = schedule.filter(d => d.pool === title)
-                          .sort((a, b) => a.order - b.order)
-                          .map(d => d.team);
-    const ring = makeRing({ key: `vb.pool.${title}`, title, names, slider: false,
-                            subtitle: "9 teams · one waits each round" });
-    values.set(title, ring.value);
-    ring.addEventListener("input", e => { e.stopPropagation(); values.set(title, ring.value); sync(); });
-    node.appendChild(ring);
-  }
+  // "optimal" chooses the divisions; "hypothetical" decides whether each is broken into rings of 4+
+  const divisions = optimal
+    ? slices(all, evenGroups(all.length, titles.length)).map((names, i) =>
+        ({ title: `Group ${i + 1} · ${names.length} teams`, names, key: `vb.opt.${i}`, subKey: `vb.optsub.${i}` }))
+    : titles.map((t, i) => ({ title: t, names: byPool(t), key: `vb.pool.${t}`, subKey: `vb.hyp.${i}` }));
+
+  const wrap = root.append("div").attr("class", "vb wrap");
+  divisions.forEach(d => {
+    if (hypothetical) {
+      const sizes = splitGroups(d.names.length, 4);
+      packRings(wrap, d.title, slices(d.names, sizes), d.subKey, sizes.length);
+    } else {
+      const panel = wrap.append("div").attr("class", "vb panel wide");
+      panel.append("div").attr("class", "cap").text(d.title);
+      panel.append("div").attr("class", "cap2").text(`${d.names.length} teams · ${d.names.length % 2 ? "one waits" : "nobody waits"}`);
+      mount(panel.append("svg"), { id: d.key, key: d.key, names: d.names });
+    }
+  });
   sync();
   return node;
 }
@@ -347,20 +453,21 @@ viewof pools = {
 
 ## Cell 8 — who plays when
 
-A running list of each team's two games, in order. It fills in as you make picks above:
-"A then B" once a first game is set, or "A or B" while a team is still waiting.
+A running list of each team's two games, in order — read straight from the rings above, so it
+works for the real pools and the hypothetical split alike. "A then B" once a first game is set,
+"A or B" while a team is still waiting.
 
 ```js
 playOrder = Inputs.table(
-  schedule.map(d => {
-    const v = pools.find(p => p.title === d.pool);
-    const pair = v?.pairs.find(([a, b]) => a === d.team || b === d.team);
-    const first = pair ? (pair[0] === d.team ? pair[1] : pair[0]) : null;
-    const second = first ? d.plays.find(o => o !== first) : null;
-    return {
-      Team: d.team,
-      Plays: first ? `${first} THEN ${second}` : `${d.plays[0]} OR ${d.plays[1]}`,
-    };
+  pools.flatMap(p => {
+    const L = p.names.length;
+    return p.names.map((team, i) => {
+      const prev = p.names[(i - 1 + L) % L], next = p.names[(i + 1) % L];
+      const pair = p.pairs.find(([a, b]) => a === team || b === team);
+      const first = pair ? (pair[0] === team ? pair[1] : pair[0]) : null;
+      return { Team: team,
+               Plays: first ? `${first} THEN ${first === prev ? next : prev}` : `${prev} OR ${next}` };
+    });
   })
 )
 ```

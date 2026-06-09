@@ -15,13 +15,13 @@
     <nav><a class="active" href="cascade.html">Demo</a><a href="schedule.html">Real schedule</a></nav>
   </header>
 
-  <div class="wrap">
-    <section class="panel">
-      <div class="cap">Ring</div>
-      <div class="cap2">Drag the slider to change the team count; count &amp; links persist across refresh.</div>
-      <svg id="ringSvg"></svg>
-    </section>
+  <div class="controls">
+    <label>Teams: <output id="count">8</output>
+      <input type="range" id="teams" min="4" max="16" step="1"></label>
+    <label><input type="checkbox" id="split"> Split into rings of 4+</label>
   </div>
+
+  <div id="rings" class="wrap"></div>
 
   <div class="legend">
     <span><i class="dot" style="background:#22c55e;border-color:#15803d"></i> playing first (linked)</span>
@@ -33,7 +33,39 @@
 
 <script src="ring.js"></script>
 <script>
-  buildRing(d3.select('#ringSvg'), { key:'vb.ring' });
+  // same shared logic as the Observable version: buildRing + splitGroups from ring.js
+  const teamsEl = document.getElementById('teams');
+  const splitEl = document.getElementById('split');
+  const countEl = document.getElementById('count');
+  const rings   = d3.select('#rings');
+
+  const TEAMS_KEY = 'vb.demo.teams', SPLIT_KEY = 'vb.demo.split';
+  teamsEl.value   = clamp(parseInt(localStorage.getItem(TEAMS_KEY), 10) || 8, 4, 16);
+  splitEl.checked = (localStorage.getItem(SPLIT_KEY) ?? '1') === '1';   // default on (rings of 4+)
+
+  function render() {
+    const total = +teamsEl.value;
+    countEl.value = total;
+    localStorage.setItem(TEAMS_KEY, total);
+    localStorage.setItem(SPLIT_KEY, splitEl.checked ? '1' : '0');
+
+    const split = splitEl.checked;
+    const sizes = split ? splitGroups(total, 4) : [total];
+    rings.selectAll('*').remove();
+    sizes.forEach((size, i) => {
+      // separate key namespaces so split-on and split-off pairings persist independently
+      const key = split ? `vb.ring.${i}` : 'vb.ring';
+      const panel = rings.append('div').attr('class', 'panel');
+      panel.append('div').attr('class', 'cap')
+        .text(sizes.length > 1 ? `Ring ${i + 1} (${size} teams)` : `Ring (${size} teams)`);
+      panel.append('svg');
+      buildRing(panel.select('svg'), { key, n: size, slider: false });
+    });
+  }
+
+  teamsEl.addEventListener('input', render);
+  splitEl.addEventListener('change', render);
+  render();
 </script>
 </body>
 </html>

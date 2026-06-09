@@ -16,23 +16,13 @@
     <nav><a href="cascade.html">Demo</a><a class="active" href="schedule.html">Real schedule</a></nav>
   </header>
 
-  <div class="wrap">
-    <section class="panel wide">
-      <div class="cap">Pool 1</div>
-      <div class="cap2">9 teams · one waits each round</div>
-      <svg id="p1"></svg>
-    </section>
-    <section class="panel wide">
-      <div class="cap">Pool 2</div>
-      <div class="cap2">9 teams · one waits each round</div>
-      <svg id="p2"></svg>
-    </section>
-    <section class="panel wide">
-      <div class="cap">Pool 3</div>
-      <div class="cap2">9 teams · one waits each round</div>
-      <svg id="p3"></svg>
-    </section>
+  <div class="controls">
+    <label><input type="checkbox" id="split"> Split each division into rings of 4+ (hypothetical)</label>
+    <label><input type="checkbox" id="optimal"> Reorganize into optimal even groups (hypothetical)</label>
   </div>
+  <div class="foot" id="modeNote" style="padding-top:0"></div>
+
+  <div id="rings"></div>
 
   <div class="legend">
     <span><i class="dot" style="background:#22c55e;border-color:#15803d"></i> playing first (linked)</span>
@@ -40,22 +30,97 @@
     <span><i class="sw" style="border-color:#15803d"></i> first-game link</span>
   </div>
 
-  <div class="foot">The slider is disabled here — each pool's roster is fixed by the real schedule.</div>
+  <div class="foot">With an even ring nobody waits; with an odd ring one team always does.</div>
 
 <script src="ring.js"></script>
 <script>
   // Each pool listed in ring (cycle) order, so neighbours are real scheduled opponents.
-  const POOLS = {
-    p1: ["Gina/Chris","Angelene Belle/Nick","Carly/Alex","Michele/Justin","Laura/Jeff",
-         "Julie/Thom","Angela/Justin","Molly/Chris","Brittany/Shane"],
-    p2: ["Ashley/Dylan","Lauren/Greg","Haley/Anthony","Lindsay/Calvin","Kayla/Josh",
-         "Zoey/Shawn","Viktorija/Matt","Tori/Larry","Kaylee/Sam"],
-    p3: ["Jakki/Caan","Molly/Ryan","Sara/Shaun","Caitlyn/Joshua","Madi/Troy",
-         "Sofia/Jordan","Hannah/Taylor","Rebecca/Bryan","Sophia/Damian"],
+  const POOLS = [
+    ["Pool 1", ["Gina/Chris","Angelene Belle/Nick","Carly/Alex","Michele/Justin","Laura/Jeff",
+                "Julie/Thom","Angela/Justin","Molly/Chris","Brittany/Shane"]],
+    ["Pool 2", ["Ashley/Dylan","Lauren/Greg","Haley/Anthony","Lindsay/Calvin","Kayla/Josh",
+                "Zoey/Shawn","Viktorija/Matt","Tori/Larry","Kaylee/Sam"]],
+    ["Pool 3", ["Jakki/Caan","Molly/Ryan","Sara/Shaun","Caitlyn/Joshua","Madi/Troy",
+                "Sofia/Jordan","Hannah/Taylor","Rebecca/Bryan","Sophia/Damian"]],
+  ];
+  const ALL = POOLS.flatMap(([, names]) => names);   // every team, in pool order
+
+  const splitEl = document.getElementById('split');
+  const optEl   = document.getElementById('optimal');
+  const noteEl  = document.getElementById('modeNote');
+  const rings   = d3.select('#rings');
+  const SPLIT_KEY = 'vb.sched.split', OPT_KEY = 'vb.sched.opt';
+  splitEl.checked = localStorage.getItem(SPLIT_KEY) === '1';
+  optEl.checked   = localStorage.getItem(OPT_KEY) === '1';
+
+  // a full-size ring in its own panel (used for the real pools)
+  function addRing(parent, key, title, names, subtitle) {
+    const panel = parent.append('div').attr('class', 'panel wide');
+    panel.append('div').attr('class', 'cap').text(title);
+    panel.append('div').attr('class', 'cap2').text(subtitle);
+    panel.append('svg');
+    buildRing(panel.select('svg'), { key, names, slider: false });
+  }
+
+  // pack a list of name-arrays into one panel's svg as a d3 grid of rings (each kept a ring)
+  function packRings(parent, title, groups, keyPrefix, cols) {
+    const n = groups.length;
+    cols = cols || Math.ceil(Math.sqrt(n));
+    const rows = Math.ceil(n / cols);
+    const R = 105, slotW = 2 * R + 250, slotH = 2 * R + 96, W = slotW * cols, H = slotH * rows;
+    const panel = parent.append('div').attr('class', 'panel').style('width', Math.min(1040, 320 * cols) + 'px');
+    if (title) panel.append('div').attr('class', 'cap').text(title);
+    const svg = panel.append('svg').attr('viewBox', `0 0 ${W} ${H}`);
+    const x = d3.scaleBand().domain(d3.range(cols)).range([0, W]);
+    const y = d3.scaleBand().domain(d3.range(rows)).range([0, H]);
+    groups.forEach((names, i) => {
+      const cx = x(i % cols) + x.bandwidth() / 2, top = y(Math.floor(i / cols));
+      const size = names.length;
+      svg.append('text').attr('class', 'subcap').attr('x', cx).attr('y', top + 26).attr('text-anchor', 'middle')
+        .text(`${size} teams${size % 2 ? ' · one waits' : ' · nobody waits'}`);
+      buildRing(svg, { key: `${keyPrefix}.${i}`, names, slider: false, cx, cy: top + slotH / 2 + 14, r: R });
+    });
+  }
+
+  // slice a flat roster into groups of the given sizes
+  const slices = (names, sizes) => { let i = 0; return sizes.map(s => names.slice(i, i += s)); };
+
+  const NOTE = {
+    '00': 'The real schedule, exactly as provided — three fixed pools of 9.',
+    '01': 'Hypothetical: each division split into rings of 4+ — only neighbours within a sub-ring can connect (not the real schedule).',
+    '10': 'Hypothetical: resized into optimal divisions, preferring multiples of 4, so at most one team waits (not the real schedule).',
+    '11': 'Hypothetical: optimal divisions (multiples of 4 preferred), each split into rings of 4+ — so 8 → two rings of 4, 11 → a 4 and a 7 (not the real schedule).',
   };
-  buildRing(d3.select('#p1'), { key:'vb.pool.1', names:POOLS.p1, slider:false });
-  buildRing(d3.select('#p2'), { key:'vb.pool.2', names:POOLS.p2, slider:false });
-  buildRing(d3.select('#p3'), { key:'vb.pool.3', names:POOLS.p3, slider:false });
+
+  function render() {
+    localStorage.setItem(SPLIT_KEY, splitEl.checked ? '1' : '0');
+    localStorage.setItem(OPT_KEY, optEl.checked ? '1' : '0');
+    rings.selectAll('*').remove();
+    const wrap = rings.append('div').attr('class', 'wrap');
+    noteEl.textContent = NOTE[(optEl.checked ? '1' : '0') + (splitEl.checked ? '1' : '0')];
+
+    // "optimal" chooses the divisions; "split" decides whether each is broken into rings of 4+
+    const divisions = optEl.checked
+      ? slices(ALL, evenGroups(ALL.length, POOLS.length)).map((names, i) =>
+          ({ title: `Group ${i + 1} · ${names.length} teams`, names, key: `vb.opt.${i}`, subKey: `vb.optsub.${i}` }))
+      : POOLS.map(([title, names], i) =>
+          ({ title, names, key: `vb.pool.${i + 1}`, subKey: `vb.hyp.${i}` }));
+
+    divisions.forEach(d => {
+      if (splitEl.checked) {
+        const sizes = splitGroups(d.names.length, 4);
+        packRings(wrap, d.title, slices(d.names, sizes), d.subKey, sizes.length);
+      } else {
+        addRing(wrap, d.key, d.title, d.names,
+                `${d.names.length} teams · ${d.names.length % 2 ? 'one waits' : 'nobody waits'}`);
+      }
+    });
+  }
+
+  // the two hypotheticals compose: optimal picks the divisions, split subdivides them
+  splitEl.addEventListener('change', render);
+  optEl.addEventListener('change', render);
+  render();
 </script>
 </body>
 </html>
