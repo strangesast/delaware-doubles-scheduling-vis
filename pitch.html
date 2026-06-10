@@ -34,6 +34,8 @@
   .team circle      { fill: #64748b; stroke: #94a3b8; }
   .team text { fill: #fff; font-weight: 700; text-anchor: middle;
                dominant-baseline: central; pointer-events: none; }
+  .team text.nname { fill: #94a3b8; font-weight: 600; font-size: calc(11px * var(--sw));
+                     text-anchor: start; dominant-baseline: central; }
   .gcap { fill: #94a3b8; font-size: calc(14px * var(--sw)); font-weight: 600; text-anchor: middle; }
   .gcap.title { fill: #e2e8f0; font-size: calc(16px * var(--sw)); font-weight: 700; }
   .gcap.note  { fill: #fbbf24; font-size: calc(12.5px * var(--sw)); font-weight: 700; }
@@ -72,6 +74,34 @@
   .stat.good .num { color: #16a34a; }
   .tryit { margin-top: 10px; font-size: 12.5px; font-weight: 700; color: #2563eb;
            display: inline-flex; align-items: center; gap: 6px; }
+  /* the roster overlay: name chips that regroup (FLIP) across the schedule-building scenes.
+     Lists run vertically, filling the stage height; the flat roster gains columns as width allows. */
+  #namegrid { position: fixed; z-index: 0; display: none; pointer-events: none; gap: 34px; overflow: hidden;
+              justify-content: center; align-items: center; transition: opacity .35s ease; }
+  #namegrid .ncol { flex: 0 0 auto; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+  #namegrid .nblock { min-width: 0; }
+  #namegrid b { animation: fadein .45s ease both; }
+  #namegrid .ngrid { display: flex; flex-direction: column; gap: 6px; }
+  #namegrid.gapped .chip.cut { margin-top: 30px; }   /* space opens at the division boundaries first */
+  /* pools: tighter stacking inside each division's column */
+  #namegrid.pools { gap: 44px; }
+  #namegrid.pools .ncol { gap: 14px; }
+  #namegrid.pools .ngrid { gap: 5px; }
+  #namegrid b { display: block; color: #cbd5e1; font-size: 12px; font-weight: 700;
+                letter-spacing: .05em; text-transform: uppercase; margin: 0 0 8px 2px; }
+  /* chip = the same team-circle iconography as the ring scenes (idle colours), name aligned after */
+  #namegrid .chip { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600;
+                    color: #e2e8f0; width: 13.5em; will-change: transform; }
+  #namegrid .chip i { font-style: normal; flex: none; width: 26px; height: 26px; border-radius: 50%;
+                      background: #64748b; border: 2px solid #94a3b8; color: #fff; font-weight: 700;
+                      font-size: 9.5px; display: flex; align-items: center; justify-content: center;
+                      box-shadow: 0 2px 3px rgba(0,0,0,0.45); }
+  #namegrid .chip span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  @media (max-width: 620px) {                        /* phone: shrinkable columns, scroll if needed */
+    #namegrid { pointer-events: auto; overflow-y: auto; gap: 12px; }
+    #namegrid .ncol { flex: 1 1 0; }
+    #namegrid .chip { width: auto; }
+  }
   .hint { margin-top: 12px; font-size: 13px; color: #94a3b8; font-weight: 600;
           animation: bob 1.8s ease-in-out infinite; }
   @keyframes bob { 0%,100%{ transform: translateY(0); } 50%{ transform: translateY(4px); } }
@@ -128,6 +158,7 @@
     </g>
   </svg>
 </div>
+<div id="namegrid"></div>
 
 <main></main>
 <div class="dots"></div>
@@ -208,6 +239,106 @@ const gridFor = dr => ({ byColumn: true, divisions: dr.length,
   ringDiv: dr.flatMap((rs, d) => rs.map(() => d)), ringRow: dr.flatMap(rs => rs.map((_, r) => r)),
   divRows: Math.max(...dr.map(rs => rs.length)) });
 const SPLITGRID = gridFor(DIVRINGS), BONUSGRID = gridFor(BONUS_DR);
+
+// ── the real Monday roster, in ring (schedule) order — T(i+1) ↔ TEAMS[i] ↔ node id i ──
+const TEAMS = [
+  'Gina/Chris','Angelene Belle/Nick','Carly/Alex','Michele/Justin','Laura/Jeff',
+  'Julie/Thom','Angela/Justin','Molly/Chris','Brittany/Shane',
+  'Ashley/Dylan','Lauren/Greg','Haley/Anthony','Lindsay/Calvin','Kayla/Josh',
+  'Zoey/Shawn','Viktorija/Matt','Tori/Larry','Kaylee/Sam',
+  'Jakki/Caan','Molly/Ryan','Sara/Shaun','Caitlyn/Joshua','Madi/Troy',
+  'Sofia/Jordan','Hannah/Taylor','Rebecca/Bryan','Sophia/Damian',
+];
+// the roster overlay: the week-to-week schedule-building process shown as a list of names that
+// gets cut into smaller lists. Grouping reuses the exact slicing math the ring scenes use
+// (sliceMembers over the same sizes), so the lists and the rings are provably the same partition.
+const nameCols = kind => {                         // columns of blocks: one column per division
+  const divs = sliceMembers(d3.range(27), evenGroups(27, 3));
+  if (kind === 'divisions') return divs.map((ids, d) => [{ head: `Division ${d + 1} · ${ids.length} teams`, ids }]);
+  return divs.map((ids, d) => sliceMembers(ids, DIVRINGS[d]).map((pids, p) =>
+    ({ head: `Division ${d + 1} · pool ${p + 1}`, ids: pids })));
+};
+const ngEl = document.getElementById('namegrid');
+const ngChips = [];                                // 27 persistent chips — they glide between groupings
+const ngChip = i => ngChips[i] || (ngChips[i] = Object.assign(document.createElement('div'),
+  { className: 'chip', innerHTML: `<i>T${i + 1}</i><span>${TEAMS[i]}</span>` }));
+const DIV_STARTS = (() => { const s = new Set(); let t = 0;            // first chip of divisions 2 and 3
+  evenGroups(27, 3).slice(0, -1).forEach(n => s.add(t += n)); return s; })();
+// the flat roster's columns, computed explicitly so nothing can ever clip: each division cut
+// always reserves a gap row, so opening the gaps (flatgap) never reflows chips between columns
+function flatColumns() {
+  const st = stage(innerWidth, innerHeight);
+  const ROW = 32;                                  // chip pitch (26px circle + 6px gap); gap ≈ one row
+  const cap = Math.max(6, Math.floor((st.bottom - st.top) / ROW));
+  const total = 27 + DIV_STARTS.size;              // chips + reserved gap rows
+  const target = Math.ceil(total / Math.ceil(total / cap));   // balance the columns (14/13, not 19/8)
+  const cols = [], cuts = new Set(); let col = null, used = target;
+  for (let i = 0; i < 27; i++) {
+    const cut = DIV_STARTS.has(i);
+    if (used + (cut && used ? 2 : 1) > target) { col = []; cols.push(col); used = 0; }
+    if (cut && used) { cuts.add(i); used += 1; }   // reserve the gap row (no gap at a column top)
+    col.push(i); used += 1;
+  }
+  return { cols, cuts };
+}
+function renderNameGrid(kind, opts = {}) {
+  if (!kind) {                                     // leaving the list scenes: fade out, then hide
+    if (ngEl.style.display === 'flex' && ngEl.style.opacity !== '0') {
+      ngEl.style.opacity = '0';
+      if (opts.instant) ngEl.style.display = 'none';   // the circles take over in place — no ghosts
+      else setTimeout(() => { if (ngEl.style.opacity === '0') ngEl.style.display = 'none'; }, 380);
+    }
+    return;
+  }
+  const fromNodes = opts.fromNodes;                // rings → list: chips glide out of the SVG circles
+  const gapped = kind === 'flatgap';               // the flat list, with space opened at division cuts
+  if (gapped) kind = 'flat';
+  const wasShown = ngEl.style.display === 'flex' && ngEl.style.opacity !== '0';
+  const st = stage(innerWidth, innerHeight);       // same drawing area the ring scenes use
+  Object.assign(ngEl.style, { display: 'flex', opacity: '1', left: st.left + 'px', top: st.top + 'px',
+    width: (st.right - st.left) + 'px', height: (st.bottom - st.top) + 'px' });
+  const first = new Map();                         // FLIP: where each chip was before regrouping
+  if (wasShown) ngChips.forEach((c, i) => { if (c.isConnected) first.set(i, c.getBoundingClientRect()); });
+  ngEl.className = kind + (gapped ? ' gapped' : '');
+  const flat = kind === 'flat' ? flatColumns() : null;
+  ngChips.forEach((c, i) => c.classList.toggle('cut', gapped && !!flat && flat.cuts.has(i)));
+  ngEl.replaceChildren(...(flat ? flat.cols.map(ids => [{ ids }]) : nameCols(kind)).map(blocks => {
+    const col = document.createElement('div'); col.className = 'ncol';
+    blocks.forEach(g => {
+      const b = document.createElement('div'); b.className = 'nblock';
+      if (g.head) { const h = Object.assign(document.createElement('b'), { textContent: g.head });
+        if (fromNodes) h.style.animationDelay = '850ms';   // headers wait for the chips to land
+        b.appendChild(h); }
+      const grid = document.createElement('div'); grid.className = 'ngrid';
+      g.ids.forEach(i => grid.appendChild(ngChip(i)));
+      b.appendChild(grid);
+      col.appendChild(b);
+    });
+    return col;
+  }));
+  // re-parenting restarts CSS animations — so animate explicitly: only brand-new chips fade in,
+  // surviving (or carried-over) chips don't flash — they glide via the FLIP below instead
+  ngChips.forEach((c, i) => {
+    c.style.animation = first.has(i) || (fromNodes && fromNodes[i]) ? 'none' : 'fadein .5s ease both';
+  });
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  ngChips.forEach((c, i) => {                      // FLIP: glide from the previous layout (or the rings)
+    let dx, dy;
+    if (fromNodes && fromNodes[i]) {               // align the chip's circle icon onto the node it replaces
+      const r = c.firstChild.getBoundingClientRect();
+      dx = fromNodes[i][0] - (r.left + r.width / 2); dy = fromNodes[i][1] - (r.top + r.height / 2);
+    } else {
+      const f = first.get(i); if (!f) return;
+      const n = c.getBoundingClientRect();
+      dx = f.left - n.left; dy = f.top - n.top;
+    }
+    if (!dx && !dy) return;
+    c.style.transition = 'none'; c.style.transform = `translate(${dx}px,${dy}px)`;
+    requestAnimationFrame(() => {
+      c.style.transition = 'transform .8s cubic-bezier(.22,.61,.36,1)'; c.style.transform = '';
+    });
+  });
+}
 
 // ── detail (split-screen) ring specs — each detail scene declares its two rings via `sides(sc)` ──
 // the twoworlds/latearrival story: the same four teams, alone in a four vs inside a nine, T1 late
@@ -402,6 +533,33 @@ const scenes = [
       };
       at(2200, round);                                       // …then take the director away
     } },
+
+  /* ── Act III: the week-to-week process, on the real roster (lists, not circles) ── */
+
+  { key:'names', sizes:[], names:'flat',
+    kicker:'Make it real', title:'These circles are real teams',
+    body:'This summer’s actual Monday roster, in schedule order — every circle so far has been one of these teams. This list is the input to each week’s schedule.' },
+
+  { key:'namedivs', sizes:[], names:'divisions',
+    kicker:'Make it real · step 1', title:'Cut the roster into divisions',
+    body:'The first weekly cut, by standings: 8 · 8 · 11, biased toward multiples of four. Only the last team of each old nine slides over.' },
+
+  { key:'namepools', sizes:[], names:'pools',
+    kicker:'Make it real · step 2', title:'Cut each division into pools',
+    body:'The second cut: pools of four (one of seven). These lists are the night’s schedule — each team plays its two pool neighbours. This is what gets posted at 2pm.' },
+
+  { key:'firstgames', sizes:FIX, cols:3, colored:true, match:'best', interactive:true, nameLabels:true, ...SPLITGRID,
+    kicker:'Make it real · step 3', title:'First games, on the rings',
+    body:'The same pools, back as rings: green links are the night’s first matches, orange circles are waiting for a free opponent. Tap teams or games to explore any first-game scenario — hover a circle for its team name.',
+    run: ({ at, fromScene }) => {                  // entering from the pools list: the circles travel first,
+      if (!fromScene || !fromScene.names) return;  // and the games only connect once they've settled
+      groups.forEach(g => g.colored = false);
+      deriveFromGroups();
+      at(2000, () => {
+        groups.forEach(g => { g.colored = true; g.mask = maskFromMatch(matchingFor('best', g.m)); });
+        refresh();
+      });
+    } },
 ];
 
 /* ───────────────── the persistent circles + physics ───────────────── */
@@ -435,6 +593,9 @@ const nodeSel = gNodes.selectAll('g.team').data(nodes).join(enter => {
   const g = enter.append('g').attr('class', 'team');
   g.append('circle').attr('r', NR).attr('class', 'idle');
   g.append('text').text(d => d.label);
+  g.append('title').text(d => d.id < 27 ? `${d.label} · ${TEAMS[d.id]}` : d.label);   // hover: real name
+  g.append('text').attr('class', 'nname').attr('opacity', 0)                          // name around the ring
+    .text(d => d.id < 27 ? TEAMS[d.id] : '');
   return g;
 });
 
@@ -468,6 +629,7 @@ function computeLayout(scene) {
 function gridLayout(scene, W, H, phone) {
   NR = clamp(Math.min(W, H) / 46, 7, 14);
   const sizes = scene.sizes, nG = sizes.length, st = stage(W, H);
+  if (!nG) return { guides: [], caps: [], divider: null, boxes: [] };   // list-only scene: no circles
   const left = st.left, right = st.right, top = st.top, bottom = st.bottom;
   phone = st.phone;
   // byColumn: one column per division, that division's rings stacked — keeps each ring within its division
@@ -676,6 +838,18 @@ function applyScene(i) {
   current = i;
   const { at } = sceneTimer();                       // this scene's timer scope; cancels all earlier ones
   setHud(null);                                      // scenes that use the HUD repopulate it from their run hook
+  // roster-list scenes use the chip overlay; entering divisions from the flat list is staged —
+  // the list first opens gaps at the division boundaries, then rearranges into columns
+  const fromFlat = sc.names === 'divisions' && !!fromSc && fromSc.names === 'flat';
+  // list ↔ rings: whichever side takes over starts on the other's exact spots, and the replaced
+  // side hides instantly (no fading ghosts) — capture positions before anything moves
+  const listToRings = !!fromSc && !!fromSc.names && !sc.names && !!(sc.sizes && sc.sizes.length);
+  const ringsToList = !!fromSc && !fromSc.names && !!sc.names && !!(fromSc.sizes && fromSc.sizes.length);
+  const chipRects = listToRings
+    ? ngChips.map(c => c && c.isConnected ? c.firstChild.getBoundingClientRect() : null) : null;
+  const nodeFrom = ringsToList ? nodes.map(n => n.show && n.id < 27 ? [n.x, n.y] : null) : null;
+  renderNameGrid(fromFlat ? 'flatgap' : sc.names || null, { instant: listToRings, fromNodes: nodeFrom });
+  if (fromFlat) at(1100, () => renderNameGrid('divisions'));
   const relayout = () => {                           // re-run this scene's layout mid-script (its state changed)
     computeLayout(sc); renderColors();
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) { nodes.forEach(n => { n.x = n.tx; n.y = n.ty; }); renderPositions(); }
@@ -688,6 +862,15 @@ function applyScene(i) {
   // pulling back from the split screen's "late" beat: keep its T2–T3 / T4–T1 games on the ring of four
   if (fromDetail && fromSc.stage === 'late' && groups.length && groups[0].m === 4) groups[0].mask = (1<<1)|(1<<3);
   if (!sc.detail) deriveFromGroups();
+  if (chipRects) {                                   // the chips' circle icons become the nodes — placed and
+    nodes.forEach(n => {                             // fully visible the same frame the grid hides (no blink)
+      const r = n.show && n.id < 27 ? chipRects[n.id] : null;
+      if (r) { n.x = r.left + r.width / 2; n.y = r.top + r.height / 2; }
+    });
+    renderPositions();
+    nodeSel.filter(d => d.show && d.id < 27 && !!chipRects[d.id]).style('opacity', 1);
+  }
+  if (ringsToList) nodeSel.interrupt().style('opacity', 0);   // the chips take over in place — no doubles
 
   // previous camera frame, read live so an interrupted move still cuts seamlessly
   const camM = cam.node().transform.baseVal.consolidate();
@@ -711,8 +894,9 @@ function applyScene(i) {
   const camZoom = !!camSnap;
   const remapScale = camZoom ? s0 / s1 : 1;           // exiting elements ride along at their remapped spot while fading
   const remapX = v => (s0 * v + t0x - t1x) / s1, remapY = v => (s0 * v + t0y - t1y) / s1;
-  if (sc.run) sc.run({ at, scene: sc, relayout });   // the scene's timed choreography (defined on its config)
+  if (sc.run) sc.run({ at, scene: sc, relayout, fromScene: fromSc });   // the scene's timed choreography
   const live = !!sc.interactive;
+  const enterDelay = listToRings ? 1300 : 0;         // circles/text travel first; rings & chrome fade in after
 
   nodeSel.transition().duration(550).style('opacity', d => d.show ? (d.op ?? 1) : 0);
   const fs = Math.max(7.5, NR * 0.86);
@@ -729,6 +913,14 @@ function applyScene(i) {
   }
   svg.style('--sw', clamp(NR / 14, 0.5, 1.5));     // scale strokes & captions to the circle size
   nodeSel.select('text').text(d => d.state === 'absent' ? '✕' : d.label);   // cancelled teams read as ✕
+  nodeSel.select('text.nname')                       // names sit just right of their circle (the chip layout)
+    .attr('x', NR + 9).attr('y', 0)                  // and simply ride along with it
+    .each(function (d) {
+      const el = d3.select(this);
+      if (!sc.nameLabels || !d.show || d.id >= 27) { el.interrupt().transition().duration(250).attr('opacity', 0); return; }
+      if (listToRings) el.interrupt().attr('opacity', 1);              // carried straight over from the chip
+      else el.interrupt().transition().delay(400).duration(500).attr('opacity', 1);
+    });
   nodeSel.style('cursor', d => live && groupOf(d.id) && groupOf(d.id).colored ? 'pointer' : 'default');
 
   const fromScene = prevScene;
@@ -743,7 +935,8 @@ function applyScene(i) {
   sim.force('collide').radius(d => !d.show ? 0 : sc.reoptimize ? 0 : spoolActive ? (compact ? NR * 0.85 : 0) : NR + 4);
 
   gBoxes.selectAll('g.divbox-g').data(boxes, d => d.key).join(
-    enter => { const g = enter.append('g').attr('class', 'divbox-g');     // CSS fades opacity, not d3 (no interrupts)
+    enter => { const g = enter.append('g').attr('class', 'divbox-g')      // CSS fades opacity, not d3 (no interrupts)
+        .style('animation-delay', enterDelay ? enterDelay + 'ms' : null);
       g.append('rect').attr('class', 'divbox').attr('rx', 16);
       g.append('text').attr('class', 'gcap divlabel');
       return g.each(function (d) { const b = d3.select(this);
@@ -767,7 +960,7 @@ function applyScene(i) {
   gGuides.selectAll('circle.guide').data(guides, d => d.key).join(
     enter => enter.append('circle').attr('class', 'guide')
       .attr('cx', d => d.cx).attr('cy', d => d.cy).attr('r', d => d.r).attr('opacity', 0)
-      .call(e => e.transition().duration(550).attr('opacity', 0.9)),
+      .call(e => e.transition().delay(enterDelay).duration(550).attr('opacity', 0.9)),
     upd => upd.call(u => (camZoom ? u.interrupt() : u.interrupt().transition().duration(500))   // interrupt revives any
       .attr('cx', d => d.cx).attr('cy', d => d.cy).attr('r', d => d.r).attr('opacity', 0.9)),   // mid-exit re-adoption
     exit => exit.call(e => { if (camZoom) e.interrupt()
@@ -802,7 +995,7 @@ function applyScene(i) {
   gCaps.selectAll('text.gcap').data(caps, d => d.key).join(
     enter => enter.append('text').attr('class', d => 'gcap ' + (d.cls || ''))
       .attr('x', d => d.x).attr('y', d => d.y).attr('opacity', 0).text(d => capText[d.key] || '')
-      .call(e => e.transition().duration(550).attr('opacity', 1)),
+      .call(e => e.transition().delay(enterDelay).duration(550).attr('opacity', 1)),
     upd => upd.call(u => { u.attr('class', d => 'gcap ' + (d.cls || '')).text(d => capText[d.key] || '');
       (camZoom ? u.interrupt() : u.interrupt().transition().duration(450))            // interrupt revives any
         .attr('x', d => d.x).attr('y', d => d.y).attr('opacity', 1); }),              // mid-exit re-adoption
@@ -936,8 +1129,8 @@ function setupTransition(prevIdx, idx) {
 }
 
 /* ───────────────── precompute transitions in a worker, replay them at runtime ───────────────── */
-// scripted scenes stay on the live sim (live/reoptimize flags, the detail split-screens); rest precompute
-const PRECOMP_SKIP = i => { const sc = scenes[i]; return !!(sc.live || sc.reoptimize || sc.detail); };
+// scripted scenes stay on the live sim (live/reoptimize flags, detail split-screens, roster lists); rest precompute
+const PRECOMP_SKIP = i => { const sc = scenes[i]; return !!(sc.live || sc.reoptimize || sc.detail || sc.names); };
 const transKey = (a, b) => a + '>' + b;
 const frameCache = {};                            // key → Float32Array (settled-prev → targets), for the current size
 let cacheSize = '';
