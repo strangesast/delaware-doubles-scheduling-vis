@@ -27,6 +27,10 @@
   .team .idle, .team circle.idle { fill: #64748b; stroke: #94a3b8; }
   .team circle.play { fill: #22c55e; stroke: #86efac; }
   .team circle.wait { fill: #f97316; stroke: #fdba74; }
+  .team circle.absent { fill: #273450; stroke: #44536f; }     /* cancelled: dark, label becomes ✕ */
+  .team circle.isolated { fill: #7f1d1d; stroke: #f87171;     /* both scheduled opponents cancelled */
+                          animation: pulse 1.1s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { stroke-opacity: 1; } 50% { stroke-opacity: 0.2; } }
   .team circle      { fill: #64748b; stroke: #94a3b8; }
   .team text { fill: #fff; font-weight: 700; text-anchor: middle;
                dominant-baseline: central; pointer-events: none; }
@@ -76,6 +80,10 @@
   .brand { position: fixed; top: 20px; left: 5vw; z-index: 3; color: #e2e8f0;
            font-size: 13px; font-weight: 700; letter-spacing: .04em; opacity: .85; pointer-events: none; }
   .brand span { color: #60a5fa; }
+  #hud { position: fixed; top: 56px; right: 22px; z-index: 3; display: none; pointer-events: none;
+         background: rgba(15,23,42,0.72); border: 1px solid rgba(148,163,184,0.25); border-radius: 12px;
+         color: #cbd5e1; font-size: 12.5px; font-weight: 600; padding: 8px 12px; }
+  #hud b { color: #fff; }
   #progress { position: fixed; top: 0; left: 0; height: 3px; width: 0;
               background: linear-gradient(90deg,#3b82f6,#22c55e); z-index: 4; transition: width .15s; }
   .dots { position: fixed; right: 22px; top: 50%; transform: translateY(-50%);
@@ -102,6 +110,7 @@
 
 <div id="progress"></div>
 <div class="brand">Delaware Doubles · <span>scheduling</span></div>
+<div id="hud"></div>
 <div id="graphic">
   <svg>
     <defs>
@@ -144,6 +153,25 @@ const matchingFor = (kind, m) =>
   (kind === 'worst' && m === 9) ? { pairs: [[0,1],[3,4],[6,7]], wait: [2,5,8] } : best(m);
 const sliceMembers = (ids, sizes) => { let i = 0; return sizes.map(s => ids.slice(i, i += s)); };
 
+// greedy free-for-all on one ring (mirrors analysis_absences.py): the present slots arrive in
+// random order, each pairing on arrival with an idle present neighbour if one exists — the
+// league's actual play-whoever's-free regime. Returns an animatable step list
+// ({arrive:j} | {edge:k}, k = the ring-edge bit) plus the night's stranded count.
+function greedyRing(m, absent) {
+  const order = d3.shuffle(d3.range(m).filter(j => !absent.has(j)));
+  const matched = new Set(), arrived = new Set(), steps = [];
+  order.forEach(j => {
+    arrived.add(j); steps.push({ arrive: j });
+    const nb = [(j+m-1)%m, (j+1)%m].filter(u => !absent.has(u) && arrived.has(u) && !matched.has(u));
+    if (nb.length) {
+      const u = nb[Math.floor(Math.random() * nb.length)];
+      matched.add(j); matched.add(u);
+      steps.push({ edge: u === (j+1)%m ? j : u });
+    }
+  });
+  return { steps, stranded: order.length - matched.size };
+}
+
 // ── ring-matching state (a bitmask per group: bit k = member k plays member k+1) ──
 const onBit = (mask, k) => (mask >> k) & 1;
 const popcount = x => { let c = 0; while (x) { c += x & 1; x >>= 1; } return c; };
@@ -167,6 +195,8 @@ function sceneTimer() {
   return { at: (delay, fn) => setTimeout(() => { if (applySeq === seq) fn(); }, delay) };
 }
 const refresh = () => { deriveFromGroups(); renderColors(); };   // recolour in place after a mask change
+const hudEl = document.getElementById('hud');                    // small stats overlay (tallies, gauges)
+const setHud = html => { hudEl.style.display = html == null ? 'none' : 'block'; if (html != null) hudEl.innerHTML = html; };
 
 /* ───────────────── the scenes (scroll stops) ───────────────── */
 const DIVRINGS = evenGroups(27, 3).map(g => splitGroups(g, 4));    // [[4,4],[4,4],[4,7]] — rings per division
@@ -178,6 +208,32 @@ const gridFor = dr => ({ byColumn: true, divisions: dr.length,
   ringDiv: dr.flatMap((rs, d) => rs.map(() => d)), ringRow: dr.flatMap(rs => rs.map((_, r) => r)),
   divRows: Math.max(...dr.map(rs => rs.length)) });
 const SPLITGRID = gridFor(DIVRINGS), BONUSGRID = gridFor(BONUS_DR);
+
+// ── detail (split-screen) ring specs — each detail scene declares its two rings via `sides(sc)` ──
+// the twoworlds/latearrival story: the same four teams, alone in a four vs inside a nine, T1 late
+const fourInNine = sc => [
+  { ids: [0,1,2,3], m: 4,
+    mask: sc.stage === 'late' && sc.paired !== false ? ((1<<1)|(1<<3)) : (1<<1),   // paired:false = T1 arrived, not yet paired
+    lateSlot: 0,
+    title: 'A ring of four',
+    count: sc.stage !== 'late' ? 'T2–T3 play · T4 waits' : sc.paired === false ? 'T1 arrives — T4 is free' : '4 · all playing' },
+  { ids: d3.range(9).map(i => 28 + i), m: 9,
+    mask: (1<<1)|(1<<3)|(1<<5)|(1<<7),
+    lateSlot: 0, ghostFrom: 4,
+    title: 'The same four, in a nine',
+    count: sc.stage === 'late' ? 'T1 stranded · 1 waits' : 'the four, split among five strangers' },
+];
+// the cancellation story: a four and a nine each lose one team; run hooks mutate sc.state per beat
+const cancelRest = () => ({                        // the resting point: ✕'d rings, re-paired on paper
+  L: { absent: [2], mask: (1<<0), count: '3 left · one team always sits' },
+  R: { absent: [4], mask: (1<<0)|(1<<2)|(1<<5)|(1<<7), count: '8 left · nobody waits' },
+});
+const cancelSides = sc => { const st = sc.state || cancelRest(); return [
+  { ids: [0,1,2,3], m: 4, mask: st.L.mask, absent: st.L.absent, pending: st.L.pending,
+    ghostMask: st.L.ghost, title: 'A ring of four', count: st.L.count },
+  { ids: d3.range(9).map(i => 28 + i), m: 9, mask: st.R.mask, absent: st.R.absent, pending: st.R.pending,
+    ghostMask: st.R.ghost, title: 'A ring of nine — the old format', count: st.R.count },
+]; };
 
 const scenes = [
   { key:'all', sizes:[27], cols:1, colored:false,
@@ -226,11 +282,11 @@ const scenes = [
     kicker:'Look closer', title:'Zoom in on one ring of four',
     body:'The camera dives into a single ring of four. Break a game or make one — it always pairs back up, with nobody left out.' },
 
-  { key:'twoworlds', detail:true, stage:'setup',
+  { key:'twoworlds', detail:true, stage:'setup', sides: fourInNine,
     kicker:'Two worlds', title:'The same four, two ways',
     body:'Left: their own ring of four. Right: the same four sharing a ring of nine, the old way. One team (T1) is running late to both.' },
 
-  { key:'latearrival', detail:true, stage:'late',
+  { key:'latearrival', detail:true, stage:'late', sides: fourInNine,
     kicker:'Watch', title:'T1 finally shows up',
     body:'In the four, a free partner is always waiting — T1 plays at once. In the nine, both its neighbours already paired off with strangers, so T1 is stranded for the hour.' },
 
@@ -249,6 +305,102 @@ const scenes = [
       g.mask &= ~(1 << (g.m - 2));                 // start the newcomer's game OFF (it + its partner stay orange)
       deriveFromGroups();
       at(1700, () => { g.mask |= (1 << (g.m - 2)); refresh(); });   // connection made — both turn green
+    } },
+
+  /* ── Act II: the stress tests (the objections from the league's reply, demonstrated) ── */
+
+  { key:'onecancels', detail:true, sides: cancelSides,
+    kicker:'The pushback', title:'“But people cancel — more than half of all play days”',
+    body:'True — and it cuts both ways. One team cancels on each side: the nine heals on paper, eight pairing up perfectly, while the four breaks — three teams can never all play at once.',
+    stat:{ n:'9→8', tone:'bad', text:'heals · 4→3 breaks, one of three always sits — the league is right about this case' },
+    run: ({ at, scene, relayout }) => {
+      scene.state = {                              // full attendance first — both rings look fine
+        L: { absent: [], mask: (1<<0)|(1<<2), count: '4 · all playing' },
+        R: { absent: [], mask: (1<<0)|(1<<2)|(1<<4)|(1<<6), count: '9 · 1 waiting' },
+      };
+      relayout();
+      at(1400, () => {                             // one team ✕'s out on each side — its game dies with it
+        scene.state.L.absent = [2]; scene.state.L.count = '3 left · T4 lost its game';
+        scene.state.R.absent = [4]; scene.state.R.count = '8 left · 2 waiting';
+        relayout();
+      });
+      at(3000, () => {                             // re-pair on paper: the eight heal, the three cannot
+        Object.assign(scene.state, cancelRest());
+        relayout();
+      });
+    } },
+
+  { key:'twocancel', detail:true, sides: cancelSides,
+    kicker:'Worst luck', title:'Two cancel from the same ring',
+    body:'The scariest case for the rings: an opposite pair cancels and the other two have no scheduled game — a dead ring. But watch the nine: two cancellations spaced two apart strand the team between them just the same. Every team has exactly two scheduled opponents in both formats.',
+    stat:{ n:'0.077 = 0.077', tone:'', text:'expected teams fully blocked, either format — identical, provably. And a dead ring’s two teams are standing at the same net: they can simply play each other.' },
+    run: ({ at, scene, relayout }) => {
+      const lucky = () => { scene.state = {       // 2 of 3 draws: the survivors are neighbours
+        L: { absent: [1, 2], mask: (1<<3),
+             count: 'two cancel · the other two just play — 2 of 3 draws' },
+        R: { absent: [3, 6], mask: (1<<4)|(1<<7)|(1<<0),
+             count: 'two cancel, spread out · 7 left · 1 waiting' },
+      }; relayout(); };
+      const deadly = () => { scene.state = {      // 1 of 3 draws: opposite pair → dead ring; the nine fails the same way
+        L: { absent: [1, 3], mask: 0,
+             count: 'opposite pair cancels · a dead ring — 1 draw in 3' },
+        R: { absent: [3, 5], mask: (1<<6)|(1<<8)|(1<<1),
+             count: 'two apart · T5 is present, both its opponents gone' },
+      }; relayout(); };
+      const cycle = () => { lucky(); at(3400, deadly); at(7200, cycle); };
+      cycle();
+    } },
+
+  { key:'whodirects', detail:true, sides: cancelSides,
+    kicker:'The catch', title:'That perfect 8 needs a director',
+    body:'Take the director away and replay the night as people actually play it: arrive, grab whichever scheduled neighbour is free. Most nights the eight misses its perfect pairing and strands two — shown faintly: the pairing nobody found. The three lands on exactly one waiting, every time.',
+    stat:{ n:'~3.6', tone:'bad', text:'teams stranded on an average full-league night today, played as people actually play — the rings: 1.0' },
+    run: ({ at, scene, relayout }) => {
+      const PERFECT8 = (1<<0)|(1<<2)|(1<<5)|(1<<7);          // the on-paper pairing from the last scene
+      const T = j => 'T' + (j + 1);
+      scene.state = cancelRest();                            // beat 1 — open on that perfect pairing…
+      scene.state.R.count = 'the perfect 8 — arranged on paper';
+      relayout();
+      let nights = 0, tot = 0;                               // the four always strands exactly 1 — tally the nine
+      // one ring's night, beat by beat: each arrival captioned, its pairing snapping in just after
+      const playRing = (side, m, g, t0, spacing) => {
+        const beats = [];                                    // {j, edge?} — an edge always follows its arrival
+        g.steps.forEach(s => s.arrive != null ? beats.push({ j: s.arrive })
+                                              : Object.assign(beats[beats.length - 1], { edge: s.edge }));
+        let t = t0;
+        beats.forEach(b => {
+          at(t, () => { scene.state[side].pending.delete(b.j);
+            scene.state[side].count = T(b.j) + (b.edge == null ? ' arrives — no opponent free' : ' arrives…');
+            relayout(); });
+          if (b.edge != null) {
+            const partner = b.edge === b.j ? (b.edge + 1) % m : b.edge;
+            at(t + 280, () => { scene.state[side].mask |= 1 << b.edge;
+              scene.state[side].count = `${T(b.j)} grabs ${T(partner)}`; relayout(); });
+          }
+          t += spacing;
+        });
+        return t;
+      };
+      const round = () => {
+        const st = cancelRest();                             // beat 2 — wipe it: nobody directs the start
+        st.L.mask = 0; st.L.pending = new Set([0, 1, 3]);            st.L.count = 'nobody directing…';
+        st.R.mask = 0; st.R.pending = new Set([0,1,2,3,5,6,7,8]);    st.R.count = 'nobody directing…';
+        scene.state = st; relayout();
+        const gl = greedyRing(4, new Set(st.L.absent)), gr = greedyRing(9, new Set(st.R.absent));
+        const tL = playRing('L', 4, gl, 900, 560);           // beat 3 — the four sorts itself: it can't go wrong
+        at(tL + 200, () => { scene.state.L.count = '1 waits — it sorts itself, every time'; relayout(); });
+        const tR = playRing('R', 9, gr, tL + 700, 660);      // beat 4 — then the nine, alone on stage
+        at(tR + 400, () => {                                 // beat 5 — verdict vs the director's pairing
+          nights++; tot += gr.stranded;
+          if (gr.stranded) { scene.state.R.ghost = PERFECT8;
+            scene.state.R.count = `${gr.stranded} stranded — the perfect 8 was right there`; }
+          else scene.state.R.count = 'found the perfect 8 — lucky night';
+          setHud(`nights replayed: <b>${nights}</b> · avg stranded — nine: <b>${(tot / nights).toFixed(1)}</b> · four: <b>1.0</b>`);
+          relayout();
+        });
+        at(tR + 3600, round);                                // next night
+      };
+      at(2200, round);                                       // …then take the director away
     } },
 ];
 
@@ -393,36 +545,31 @@ function detailGeom(W, H) {
 function detailLayout(scene, W, H, phone) {
   const geom = detailGeom(W, H);
   NR = geom.dNR;
-  const stage = scene.stage;                       // 'setup' (T1 late) | 'late' (T1 arrives)
   const guides = [], caps = [];
   const { aC, bC, rA, rB, divider } = geom;
   // titles: top of the stage when side-by-side (one shared baseline); just above each ring when stacked
   const tA = geom.portrait ? aC[1] - rA * WAIT_OUT - NR - 22 : geom.top + 26;
   const tB = geom.portrait ? bC[1] - rB * WAIT_OUT - NR - 22 : geom.top + 26;
   const tShared = geom.portrait ? null : Math.min(tA, tB);
-
-  // LEFT — ring of four, real T1..T4. setup: T2-T3 play, T4 waits, T1 late. late: T1 joins T4, all play.
   const enter = geom.portrait ? 'left' : 'top';     // portrait (stacked) → enter from the left; landscape → top
-  placeDetailRing([0,1,2,3], aC[0], aC[1], rA,
-    stage === 'late' && scene.paired !== false ? ((1<<1)|(1<<3)) : (1<<1),   // paired:false = T1 has arrived, not yet paired
-    { lateSlot: 0, stage, m: 4, ghostFrom: 99, key: 'L', enter, titleY: tShared ?? tA },
-    guides, caps, 'A ring of four',
-    stage !== 'late' ? 'T2–T3 play · T4 waits' : scene.paired === false ? 'T1 arrives — T4 is free' : '4 · all playing');
 
-  // RIGHT — same four inside a nine (T5..T9 are strangers/ghosts). T1's neighbours pair off with others.
-  placeDetailRing(d3.range(9).map(i => 28 + i), bC[0], bC[1], rB,
-    (1<<1)|(1<<3)|(1<<5)|(1<<7),
-    { lateSlot: 0, stage, m: 9, ghostFrom: 4, key: 'R', enter, titleY: tShared ?? tB },
-    guides, caps, 'The same four, in a nine', stage === 'late' ? 'T1 stranded · 1 waits' : 'the four, split among five strangers');
-
+  scene.sides(scene).forEach((s, si) => {           // [left, right] ring specs from the scene config
+    const cx = si ? bC[0] : aC[0], cy = si ? bC[1] : aC[1], r = si ? rB : rA;
+    placeDetailRing(s.ids, cx, cy, r, s.mask,
+      { lateSlot: s.lateSlot ?? -1, stage: scene.stage, m: s.m, ghostFrom: s.ghostFrom ?? 99,
+        absent: s.absent, pending: s.pending, ghostMask: s.ghostMask,
+        key: si ? 'R' : 'L', enter, titleY: tShared ?? (si ? tB : tA) },
+      guides, caps, s.title, s.count);
+  });
   return { guides, caps, divider };
 }
 
 function placeDetailRing(ids, cx, cy, r, mask, opt, guides, caps, title, count) {
-  const m = opt.m;
+  const m = opt.m, absent = new Set(opt.absent || []), pending = opt.pending || new Set();
   guides.push({ key: opt.key, cx, cy, r });
+  const okEdge = k => onBit(mask, k) && !absent.has(k) && !absent.has((k+1)%m);   // a game needs both teams
   const play = new Set();
-  for (let k = 0; k < m; k++) if (onBit(mask, k)) { play.add(k); play.add((k+1)%m); }
+  for (let k = 0; k < m; k++) if (okEdge(k)) { play.add(k); play.add((k+1)%m); }
 
   ids.forEach((id, j) => {
     const nd = nodes[id], a = -Math.PI/2 + j * 2 * Math.PI / m, ghost = j >= opt.ghostFrom;
@@ -432,17 +579,24 @@ function placeDetailRing(ids, cx, cy, r, mask, opt, guides, caps, title, count) 
       else { nd.tx = cx; nd.ty = opt.titleY + NR + 20; }                               // enters from the top, below the title
       nd.state = 'idle'; nd.op = 0.38;
     } else {                                                  // in the ring; the stranded sit just outside the rim
-      const R = r * (play.has(j) ? 1 : WAIT_OUT);
+      const st = absent.has(j) ? 'absent'                     // cancelled: ✕'d, stays on the rim
+        : pending.has(j) ? 'idle'                             // hasn't arrived yet (replay scenes)
+        : absent.has((j+1)%m) && absent.has((j-1+m)%m) ? 'isolated'   // both scheduled opponents cancelled
+        : play.has(j) ? 'play' : 'wait';
+      const R = r * (st === 'wait' ? WAIT_OUT : 1);
       nd.tx = cx + R * Math.cos(a); nd.ty = cy + R * Math.sin(a);
-      nd.state = play.has(j) ? 'play' : 'wait';
+      nd.state = st;
       nd.op = (ghost && j !== opt.lateSlot) ? 0.4 : 1;
     }
     if (!nd._wasShown) { nd.x = nd.tx; nd.y = nd.ty; }        // brand-new circles just fade in at their spot, no fly
   });
-  for (let k = 0; k < m; k++) if (onBit(mask, k)) {
+  for (let k = 0; k < m; k++) if (okEdge(k)) {
     const ghostLink = k >= opt.ghostFrom || (k+1)%m >= opt.ghostFrom;
     LINKS.push({ a: ids[k], b: ids[(k+1)%m], op: ghostLink ? 0.4 : 0.9 });
   }
+  if (opt.ghostMask) for (let k = 0; k < m; k++)            // the pairing a director would have found — faint
+    if (onBit(opt.ghostMask, k) && !okEdge(k) && !absent.has(k) && !absent.has((k+1)%m))
+      LINKS.push({ a: ids[k], b: ids[(k+1)%m], op: 0.15 });
   caps.push({ key: opt.key + '-t', x: cx, y: opt.titleY, cls: 'title' });
   capText[opt.key + '-t'] = title;
   caps.push({ key: opt.key + '-c', x: cx, y: cy + r * WAIT_OUT + 34, cls: '' });
@@ -459,25 +613,32 @@ function placeDetailRing(ids, cx, cy, r, mask, opt, guides, caps, title, count) 
 function deriveFromGroups() {
   LINKS = [];
   groups.forEach(g => {
+    const ab = g.absent || new Set();            // member indices who cancelled (✕'d, can't play)
     if (!g.colored) { g.members.forEach(id => nodes[id].state = 'idle'); capText[g.key] = g.m + ' teams'; return; }
-    g.members.forEach(id => nodes[id].state = 'wait');
-    for (let k = 0; k < g.m; k++) if (onBit(g.mask, k)) {
+    g.members.forEach((id, k) => nodes[id].state =
+      ab.has(k) ? 'absent'
+      : ab.has((k+1)%g.m) && ab.has((k-1+g.m)%g.m) ? 'isolated'   // both scheduled opponents cancelled
+      : 'wait');
+    let links = 0;
+    for (let k = 0; k < g.m; k++) if (onBit(g.mask, k) && !ab.has(k) && !ab.has((k+1)%g.m)) {
       const a = g.members[k], b = g.members[(k+1)%g.m];
-      nodes[a].state = 'play'; nodes[b].state = 'play'; LINKS.push({ a, b, op: 0.9 });
+      nodes[a].state = 'play'; nodes[b].state = 'play'; LINKS.push({ a, b, op: 0.9 }); links++;
     }
     g.members.forEach(id => {                    // the stranded sit just outside the rim, the matched on it
       const nd = nodes[id], a = Math.atan2(nd.ty - g.cy, nd.tx - g.cx);
       const R = g.r * (nd.state === 'wait' ? WAIT_OUT : 1);
       nd.tx = g.cx + R * Math.cos(a); nd.ty = g.cy + R * Math.sin(a);
     });
-    const waits = g.m - 2 * popcount(g.mask);
-    capText[g.key] = waits ? `${g.m} · ${waits} waiting` : `${g.m} · all playing`;
+    const present = g.m - ab.size, waits = present - 2 * links;
+    capText[g.key] = ab.size ? `${present} present · ${waits ? waits + ' waiting' : 'all playing'}`
+                             : waits ? `${g.m} · ${waits} waiting` : `${g.m} · all playing`;
   });
 }
 
 /* ── paint colours + links + caption text without moving anything (used after clicks) ── */
 function renderColors() {
   nodeSel.select('circle').attr('class', d => d.show ? d.state : 'idle');
+  nodeSel.select('text').text(d => d.state === 'absent' ? '✕' : d.label);   // cancelled teams read as ✕
   renderLinks(true);
   gCaps.selectAll('text.gcap').text(d => capText[d.key] || '');
 }
@@ -514,13 +675,16 @@ function applyScene(i) {
     ? { cx: groups[0].cx, cy: groups[0].cy, r: groups[0].r } : null;
   current = i;
   const { at } = sceneTimer();                       // this scene's timer scope; cancels all earlier ones
+  setHud(null);                                      // scenes that use the HUD repopulate it from their run hook
+  const relayout = () => {                           // re-run this scene's layout mid-script (its state changed)
+    computeLayout(sc); renderColors();
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { nodes.forEach(n => { n.x = n.tx; n.y = n.ty; }); renderPositions(); }
+    else sim.alpha(0.5).alphaTarget(0).restart();
+  };
   // arriving from the split-screen setup: T1 first pauses just outside the rim, then pairs with T4
   const stagedArrive = sc.key === 'latearrival' && !!fromSc && fromSc.key === 'twoworlds';
   const { guides, caps, divider, boxes = [] } = computeLayout(stagedArrive ? { ...sc, paired: false } : sc);
-  if (stagedArrive) at(1800, () => {
-    computeLayout(sc); renderColors();               // T1 + T4 step onto the ring and connect
-    sim.alpha(0.5).alphaTarget(0).restart();
-  });
+  if (stagedArrive) at(1800, relayout);              // T1 + T4 step onto the ring and connect
   // pulling back from the split screen's "late" beat: keep its T2–T3 / T4–T1 games on the ring of four
   if (fromDetail && fromSc.stage === 'late' && groups.length && groups[0].m === 4) groups[0].mask = (1<<1)|(1<<3);
   if (!sc.detail) deriveFromGroups();
@@ -547,7 +711,7 @@ function applyScene(i) {
   const camZoom = !!camSnap;
   const remapScale = camZoom ? s0 / s1 : 1;           // exiting elements ride along at their remapped spot while fading
   const remapX = v => (s0 * v + t0x - t1x) / s1, remapY = v => (s0 * v + t0y - t1y) / s1;
-  if (sc.run) sc.run({ at });                     // the scene's timed choreography (defined on its config)
+  if (sc.run) sc.run({ at, scene: sc, relayout });   // the scene's timed choreography (defined on its config)
   const live = !!sc.interactive;
 
   nodeSel.transition().duration(550).style('opacity', d => d.show ? (d.op ?? 1) : 0);
@@ -564,6 +728,7 @@ function applyScene(i) {
     nodeSel.select('text').attr('font-size', fs);
   }
   svg.style('--sw', clamp(NR / 14, 0.5, 1.5));     // scale strokes & captions to the circle size
+  nodeSel.select('text').text(d => d.state === 'absent' ? '✕' : d.label);   // cancelled teams read as ✕
   nodeSel.style('cursor', d => live && groupOf(d.id) && groupOf(d.id).colored ? 'pointer' : 'default');
 
   const fromScene = prevScene;
