@@ -17,52 +17,58 @@
              background: radial-gradient(120% 100% at 70% 10%, #16233b 0%, #0b1220 60%); }
   #graphic svg { width: 100%; height: 100%; display: block; }
 
-  /* ring guides, pairing links, team circles */
-  .guide { fill: none; stroke: #2b3c5a; stroke-width: 2; }
-  .divider { stroke: #33456b; stroke-width: 2; stroke-dasharray: 3 9; stroke-linecap: round; }
-  .pair  { stroke: #34d399; stroke-width: 5; stroke-linecap: round; }
+  /* ring guides, pairing links, team circles — strokes & label sizes scale with --sw (node radius / 14) */
+  #graphic svg { --sw: 1; }
+  .guide { fill: none; stroke: #2b3c5a; stroke-width: calc(2px * var(--sw)); }
+  .divider { stroke: #33456b; stroke-width: calc(2px * var(--sw)); stroke-dasharray: 3 9; stroke-linecap: round; }
+  .pair  { stroke: #34d399; stroke-width: calc(5px * var(--sw)); stroke-linecap: round; }
   .hit   { stroke: transparent; stroke-width: 18; }
-  .team circle { stroke-width: 2.5; transition: fill .55s ease, stroke .55s ease; filter: url(#soft); }
+  .team circle { stroke-width: calc(2.5px * var(--sw)); transition: fill .55s ease, stroke .55s ease; filter: url(#soft); }
   .team .idle, .team circle.idle { fill: #64748b; stroke: #94a3b8; }
   .team circle.play { fill: #22c55e; stroke: #86efac; }
   .team circle.wait { fill: #f97316; stroke: #fdba74; }
   .team circle      { fill: #64748b; stroke: #94a3b8; }
-  .team text { fill: #fff; font-size: 12.5px; font-weight: 700; text-anchor: middle;
+  .team text { fill: #fff; font-weight: 700; text-anchor: middle;
                dominant-baseline: central; pointer-events: none; }
-  .gcap { fill: #94a3b8; font-size: 14px; font-weight: 600; text-anchor: middle; }
-  .gcap.title { fill: #e2e8f0; font-size: 16px; font-weight: 700; }
-  .gcap.note  { fill: #fbbf24; font-size: 12.5px; font-weight: 700; }
-  .gcap.divlabel { fill: #cbd5e1; font-size: 15px; font-weight: 700; letter-spacing: .05em; }
-  .divbox { fill: rgba(96,165,250,0.06); stroke: #4a6da3; stroke-width: 2; stroke-dasharray: 5 7; }
+  .gcap { fill: #94a3b8; font-size: calc(14px * var(--sw)); font-weight: 600; text-anchor: middle; }
+  .gcap.title { fill: #e2e8f0; font-size: calc(16px * var(--sw)); font-weight: 700; }
+  .gcap.note  { fill: #fbbf24; font-size: calc(12.5px * var(--sw)); font-weight: 700; }
+  .gcap.divlabel { fill: #cbd5e1; font-size: calc(15px * var(--sw)); font-weight: 700; letter-spacing: .05em; }
+  .divbox { fill: rgba(96,165,250,0.06); stroke: #4a6da3; stroke-width: calc(2px * var(--sw)); stroke-dasharray: 5 7; }
+  @media (max-width: 620px), (max-height: 560px) {   /* lighter, less chunky text on phones */
+    .team text { font-weight: 600; }
+    .gcap, .gcap.title, .gcap.note, .gcap.divlabel { font-weight: 600; }
+  }
   .divbox-g { animation: fadein .6s ease both; }
   @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
 
-  /* scrolling narrative */
+  /* scrolling narrative — graphic z0, cards z1 (above graphic), chrome z3+ (above cards) */
   main { position: relative; z-index: 1; pointer-events: none; }   /* clicks fall through to the graphic; .card re-enables */
   .step { height: 100vh; height: 100dvh; scroll-snap-align: center; position: relative; pointer-events: none; }
   .card {
-    pointer-events: auto;
+    pointer-events: auto; z-index: 1;
     position: absolute; left: 5vw; bottom: 9vh; width: min(460px, 88vw);
     background: rgba(255,255,255,0.92); backdrop-filter: blur(10px);
     border: 1px solid rgba(255,255,255,0.6); border-radius: 20px; padding: 22px 26px;
     box-shadow: 0 24px 60px -22px rgba(0,0,0,0.6);
-    opacity: 0; transform: translateY(34px); will-change: opacity, transform;
-    transition: opacity .6s cubic-bezier(.22,.61,.36,1), transform .6s cubic-bezier(.22,.61,.36,1);
+    opacity: 0; transform: translateY(12px); will-change: opacity, transform;   /* only a slight vertical shift, mostly fade */
+    transition: opacity .45s ease, transform .45s ease;
   }
-  .step.active .card { opacity: 1; transform: translateY(0); }   /* fade + rise on arrive, fade + drop on depart */
+  .step.active .card  { opacity: 1; transform: translateY(0); }      /* fade in, rising slightly from below */
+  .step.exiting .card { opacity: 0; transform: translateY(-12px); }  /* fade out, drifting slightly up */
   .kicker { font-size: 12px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase;
             color: #2563eb; margin-bottom: 8px; }
   .card h2 { margin: 0 0 8px; font-size: 23px; line-height: 1.2; }
   .card p  { margin: 0; font-size: 15px; line-height: 1.55; color: #475569; }
-  .stat { margin-top: 14px; display: flex; align-items: baseline; gap: 9px;
-          padding-top: 13px; border-top: 1px solid #eef2f7; }
-  .stat .num  { font-size: 40px; font-weight: 800; line-height: 1; }
-  .stat .unit { font-size: 14px; color: #475569; }
+  .stat { margin-top: 9px; display: flex; align-items: baseline; gap: 8px;
+          padding-top: 9px; border-top: 1px solid #eef2f7; }
+  .stat .num  { font-size: 29px; font-weight: 800; line-height: 1; }
+  .stat .unit { font-size: 13.5px; color: #475569; line-height: 1.35; }
   .stat.bad  .num { color: #ea580c; }
   .stat.good .num { color: #16a34a; }
-  .tryit { margin-top: 14px; font-size: 12.5px; font-weight: 700; color: #2563eb;
+  .tryit { margin-top: 10px; font-size: 12.5px; font-weight: 700; color: #2563eb;
            display: inline-flex; align-items: center; gap: 6px; }
-  .hint { margin-top: 16px; font-size: 13px; color: #94a3b8; font-weight: 600;
+  .hint { margin-top: 12px; font-size: 13px; color: #94a3b8; font-weight: 600;
           animation: bob 1.8s ease-in-out infinite; }
   @keyframes bob { 0%,100%{ transform: translateY(0); } 50%{ transform: translateY(4px); } }
 
@@ -78,10 +84,16 @@
                  background: rgba(148,163,184,0.45); transition: all .25s; }
   .dots button.on { background: #e2e8f0; transform: scale(1.45); }
 
-  @media (max-width: 620px) {
-    .card { left: 50%; width: 90vw; transform: translateX(-50%) translateY(34px); bottom: 5vh; }
-    .step.active .card { transform: translateX(-50%) translateY(0); }
+  @media (max-width: 620px) {                          /* portrait phone: card centred at the bottom */
+    .card { left: 50%; margin-left: -45vw; width: 90vw; bottom: 5vh; }
     .card h2 { font-size: 20px; }
+    .dots { display: none; }
+  }
+  @media (max-height: 560px) {                         /* short / landscape phone: card as a left-hand panel */
+    .card { left: 2.5vw; margin-left: 0; right: auto; bottom: auto; top: 6vh; width: min(330px, 40vw);
+            max-height: 88vh; overflow: auto; padding: 16px 18px; }
+    .card h2 { font-size: 18px; margin-bottom: 6px; } .card p { font-size: 13.5px; line-height: 1.45; }
+    .card .stat { margin-top: 10px; padding-top: 9px; } .card .stat .num { font-size: 30px; }
     .dots { display: none; }
   }
 </style>
@@ -146,14 +158,15 @@ function cycleTeam(g, k) {                       // click a team: unmatched → 
 }
 
 /* ───────────────── the scenes (scroll stops) ───────────────── */
-const DIVRINGS = evenGroups(27, 3).map(g => splitGroups(g, 4));    // [[4,4],[4,4],[4,4,3]] — rings per division
-const FIX   = DIVRINGS.flat();                                     // [4,4,4,4,4,4,3]
-const BONUS = [...FIX.slice(0, -1), FIX[FIX.length - 1] + 1];      // the lone odd ring gains the 28th team
-// shared layout: one column per division, that division's rings stacked (keeps each ring in its division)
-const SPLITGRID = { byColumn: true, divisions: 3,
-  ringDiv: DIVRINGS.flatMap((rs, d) => rs.map(() => d)),
-  ringRow: DIVRINGS.flatMap(rs => rs.map((_, r) => r)),
-  divRows: Math.max(...DIVRINGS.map(rs => rs.length)) };
+const DIVRINGS = evenGroups(27, 3).map(g => splitGroups(g, 4));    // [[4,4],[4,4],[4,7]] — rings per division
+const FIX   = DIVRINGS.flat();                                     // [4,4,4,4,4,7]
+const BONUS_DR = evenGroups(28, 3).map(g => splitGroups(g, 4));    // [[4,4],[4,4],[4,4,4]] — the 28th makes division 3 three fours
+const BONUS = BONUS_DR.flat();                                     // [4,4,4,4,4,4,4]
+// one column per division, that division's rings stacked (keeps each ring within its division)
+const gridFor = dr => ({ byColumn: true, divisions: dr.length,
+  ringDiv: dr.flatMap((rs, d) => rs.map(() => d)), ringRow: dr.flatMap(rs => rs.map((_, r) => r)),
+  divRows: Math.max(...dr.map(rs => rs.length)) });
+const SPLITGRID = gridFor(DIVRINGS), BONUSGRID = gridFor(BONUS_DR);
 
 const scenes = [
   { key:'all', sizes:[27], cols:1, colored:false,
@@ -194,20 +207,21 @@ const scenes = [
     kicker:'Watch', title:'T1 finally shows up',
     body:'In the four, a free partner is always waiting — T1 plays at once. In the nine, both its neighbours already paired off with strangers, so T1 is stranded for the hour.' },
 
-  { key:'payoff', sizes:FIX, cols:3, colored:true, match:'best', interactive:true, reserveLast:true, ...SPLITGRID,
+  { key:'payoff', sizes:FIX, cols:3, colored:true, match:'best', interactive:true, ...SPLITGRID,
     kicker:'The payoff', title:'Exactly one team ever waits',
-    body:'A ring of four can never strand anyone, no matter who shows up. Only the one leftover ring carries a wait — see the empty spot beside it.',
+    body:'A ring of four can never strand anyone, no matter who shows up. Only the one leftover ring of seven carries a wait.',
     stat:{ n:2, tone:'good', text:'people wait — guaranteed, every single night' } },
 
-  { key:'bonus', sizes:BONUS, cols:3, colored:true, match:'best', extra:true, interactive:true, arriveConnect:true, ...SPLITGRID,
+  { key:'bonus', sizes:BONUS, cols:3, colored:true, match:'best', extra:true, interactive:true, arriveConnect:true, ...BONUSGRID,
     kicker:'Bonus', title:'Add one fill-in → nobody waits',
-    body:'Scrounge up a 28th team and the lone odd ring becomes even — the newcomer slots in beside the team that was waiting, and the last wait disappears.',
+    body:'Scrounge up a 28th team and division three’s leftover seven becomes a clean third ring of four — the newcomer joins the team that was waiting, and the last wait disappears.',
     stat:{ n:0, tone:'good', text:'people wait' } },
 ];
 
 /* ───────────────── the persistent circles + physics ───────────────── */
 let NR = 14;                                   // node radius — recomputed per viewport
 const SPREAD = 0.30, CAP = 0.46;
+const WAIT_OUT = 1.13;                         // unmatched teams sit this far outside the rim, in every view
 let tickClock = 0, prevScene = -1;
 // the 27↔nines move: each team rides OFF its source circle at a tangent, hops the gap, and rides ONTO
 // its target circle to its slot — one belt routine (spoolPlan) drives both directions
@@ -267,14 +281,13 @@ function computeLayout(scene) {
 
 function gridLayout(scene, W, H, phone) {
   NR = clamp(Math.min(W, H) / 46, 7, 14);
-  const sizes = scene.sizes, nG = sizes.length;
-  const left = phone ? 18 : 44, right = W - (phone ? 18 : 44);
+  const sizes = scene.sizes, nG = sizes.length, st = stage(W, H);
+  const left = st.left, right = st.right, top = st.top, bottom = st.bottom;
+  phone = st.phone;
   // byColumn: one column per division, that division's rings stacked — keeps each ring within its division
   const cols = scene.byColumn ? scene.divisions
     : clamp(Math.floor((right - left) / (phone ? 120 : 170)), 1, Math.min(scene.cols, nG));
   const rows = scene.byColumn ? scene.divRows : Math.ceil(nG / cols);
-  const top = phone ? 64 : 84;
-  const bottom = H - (phone ? Math.min(340, H * 0.42) : 188);
   const cellW = (right - left) / cols, cellH = (bottom - top) / rows;
   const ids = d3.range(scene.extra ? 28 : 27);
   const gm = sliceMembers(ids, sizes);
@@ -288,7 +301,10 @@ function gridLayout(scene, W, H, phone) {
     const cx = left + rowPad + (colInRow + 0.5) * cellW, cy = top + (row + 0.5) * cellH;
     const m = members.length;
     const slots = (scene.reserveLast && gi === gm.length - 1) ? m + 1 : m;   // reserve an empty slot for a newcomer
-    const r = ringRadius(slots, cellW, cellH), key = scene.key + ':' + gi;
+    // byColumn scenes share slot-keyed guides so every ring morphs across story beats; ring 0 of the
+    // fours shares the split screen's 'L' key so its circle is also reused across the camera cuts
+    const r = ringRadius(slots, cellW, cellH),
+          key = scene.byColumn ? (gi === 0 && m === 4 ? 'L' : 'ring' + gi) : scene.key + ':' + gi;
     guides.push({ key, cx, cy, r });
     const mask = scene.colored ? maskFromMatch(matchingFor(scene.match, m)) : 0;
     groups.push({ key, members, m, mask, colored:!!scene.colored, interactive:!!scene.interactive, cx, cy, r });
@@ -320,23 +336,24 @@ function gridLayout(scene, W, H, phone) {
 // geometry of the detail split-screen — shared with the zoom camera so the ring of four is
 // exactly the same size in the "zoom" step as in this comparison step
 function detailGeom(W, H) {
-  const phone = W < 620;
-  const dNR = clamp(Math.min(W, H) / (phone ? 34 : 26), 11, 20);
+  const st = stage(W, H);
+  const portrait = st.phone && !st.short;           // stacked only on a narrow portrait phone
+  const sw = st.right - st.left, sh = st.bottom - st.top, scx = (st.left + st.right) / 2, scy = (st.top + st.bottom) / 2;
+  const dNR = clamp(Math.min(W, H) / (portrait ? 42 : 30), 9, 18);
   let aC, bC, cellW, cellH, divider;
-  if (phone) {
-    const top = 66, regH = H - Math.min(330, H * 0.42) - top;
-    aC = [W/2, top + regH * 0.27]; bC = [W/2, top + regH * 0.73];
-    cellW = W - 40; cellH = regH * 0.46;
-    divider = { x1: 26, y1: top + regH * 0.5, x2: W - 26, y2: top + regH * 0.5 };
-  } else {
-    aC = [W * 0.27, H * 0.44]; bC = [W * 0.73, H * 0.44];
-    cellW = W * 0.40; cellH = H * 0.56;
-    divider = { x1: W/2, y1: H * 0.12, x2: W/2, y2: H * 0.80 };
+  if (portrait) {                                   // stacked: ring of four on top, the nine below, well separated
+    aC = [scx, st.top + sh * 0.22]; bC = [scx, st.top + sh * 0.74];
+    cellW = sw * 0.92; cellH = sh * 0.40;
+    divider = { x1: st.left, y1: st.top + sh * 0.48, x2: st.right, y2: st.top + sh * 0.48 };
+  } else {                                          // side-by-side within the stage (handles short/landscape)
+    aC = [st.left + sw * 0.27, scy]; bC = [st.left + sw * 0.73, scy];
+    cellW = sw * 0.42; cellH = sh * 0.80;
+    divider = { x1: scx, y1: st.top + 6, x2: scx, y2: st.bottom - 6 };
   }
   const saved = NR; NR = dNR;                       // ringRadius reads the (detail) node radius
   const rA = ringRadius(4, cellW, cellH), rB = ringRadius(9, cellW, cellH);
   NR = saved;
-  return { aC, bC, rA, rB, divider, dNR };
+  return { aC, bC, rA, rB, divider, dNR, portrait, top: st.top };
 }
 
 function detailLayout(scene, W, H, phone) {
@@ -345,17 +362,22 @@ function detailLayout(scene, W, H, phone) {
   const stage = scene.stage;                       // 'setup' (T1 late) | 'late' (T1 arrives)
   const guides = [], caps = [];
   const { aC, bC, rA, rB, divider } = geom;
+  // titles: top of the stage when side-by-side (one shared baseline); just above each ring when stacked
+  const tA = geom.portrait ? aC[1] - rA * WAIT_OUT - NR - 22 : geom.top + 26;
+  const tB = geom.portrait ? bC[1] - rB * WAIT_OUT - NR - 22 : geom.top + 26;
+  const tShared = geom.portrait ? null : Math.min(tA, tB);
 
   // LEFT — ring of four, real T1..T4. setup: T2-T3 play, T4 waits, T1 late. late: T1 joins T4, all play.
+  const enter = geom.portrait ? 'left' : 'top';     // portrait (stacked) → enter from the left; landscape → top
   placeDetailRing([0,1,2,3], aC[0], aC[1], rA,
     stage === 'late' ? ((1<<1)|(1<<3)) : (1<<1),
-    { lateSlot: 0, stage, m: 4, ghostFrom: 99, key: 'L' },
+    { lateSlot: 0, stage, m: 4, ghostFrom: 99, key: 'L', enter, titleY: tShared ?? tA },
     guides, caps, 'A ring of four', stage === 'late' ? '4 · all playing' : 'T2–T3 play · T4 waits');
 
   // RIGHT — same four inside a nine (T5..T9 are strangers/ghosts). T1's neighbours pair off with others.
   placeDetailRing(d3.range(9).map(i => 28 + i), bC[0], bC[1], rB,
     (1<<1)|(1<<3)|(1<<5)|(1<<7),
-    { lateSlot: 0, stage, m: 9, ghostFrom: 4, key: 'R' },
+    { lateSlot: 0, stage, m: 9, ghostFrom: 4, key: 'R', enter, titleY: tShared ?? tB },
     guides, caps, 'The same four, in a nine', stage === 'late' ? 'T1 stranded · 1 waits' : 'the four, split among five strangers');
 
   return { guides, caps, divider };
@@ -371,25 +393,29 @@ function placeDetailRing(ids, cx, cy, r, mask, opt, guides, caps, title, count) 
     const nd = nodes[id], a = -Math.PI/2 + j * 2 * Math.PI / m, ghost = j >= opt.ghostFrom;
     nd.show = true;
     if (j === opt.lateSlot && opt.stage === 'setup') {        // hasn't arrived: parked outside, dim
-      nd.tx = cx + r * 1.78 * Math.cos(a); nd.ty = cy + r * 1.78 * Math.sin(a);
+      if (opt.enter === 'left') { nd.tx = cx - r * 1.95; nd.ty = cy; }                 // enters from the left
+      else { nd.tx = cx; nd.ty = opt.titleY + NR + 20; }                               // enters from the top, below the title
       nd.state = 'idle'; nd.op = 0.38;
-    } else {                                                  // in the ring
-      nd.tx = cx + r * Math.cos(a); nd.ty = cy + r * Math.sin(a);
+    } else {                                                  // in the ring; the stranded sit just outside the rim
+      const R = r * (play.has(j) ? 1 : WAIT_OUT);
+      nd.tx = cx + R * Math.cos(a); nd.ty = cy + R * Math.sin(a);
       nd.state = play.has(j) ? 'play' : 'wait';
       nd.op = (ghost && j !== opt.lateSlot) ? 0.4 : 1;
     }
+    if (!nd._wasShown) { nd.x = nd.tx; nd.y = nd.ty; }        // brand-new circles just fade in at their spot, no fly
   });
   for (let k = 0; k < m; k++) if (onBit(mask, k)) {
     const ghostLink = k >= opt.ghostFrom || (k+1)%m >= opt.ghostFrom;
     LINKS.push({ a: ids[k], b: ids[(k+1)%m], op: ghostLink ? 0.4 : 0.9 });
   }
-  caps.push({ key: opt.key + '-t', x: cx, y: cy - r - (m > 4 ? 34 : 30), cls: 'title' });
+  caps.push({ key: opt.key + '-t', x: cx, y: opt.titleY, cls: 'title' });
   capText[opt.key + '-t'] = title;
-  caps.push({ key: opt.key + '-c', x: cx, y: cy + r + 34, cls: '' });
+  caps.push({ key: opt.key + '-c', x: cx, y: cy + r * WAIT_OUT + 34, cls: '' });
   capText[opt.key + '-c'] = count;
-  if (opt.stage === 'setup') {
-    const a = -Math.PI/2 + opt.lateSlot * 2 * Math.PI / m;
-    caps.push({ key: opt.key + '-n', x: cx + r * 1.78 * Math.cos(a), y: cy + r * 1.78 * Math.sin(a) + 30, cls: 'note' });
+  if (opt.stage === 'setup') {                              // "running late" tag sits with the parked T1, clear of the title
+    const nx = opt.enter === 'left' ? cx - r * 1.95 : cx;
+    const ny = opt.enter === 'left' ? cy + 28 : opt.titleY + NR * 2 + 38;
+    caps.push({ key: opt.key + '-n', x: nx, y: ny, cls: 'note' });
     capText[opt.key + '-n'] = 'T1 · running late';
   }
 }
@@ -404,6 +430,11 @@ function deriveFromGroups() {
       const a = g.members[k], b = g.members[(k+1)%g.m];
       nodes[a].state = 'play'; nodes[b].state = 'play'; LINKS.push({ a, b, op: 0.9 });
     }
+    g.members.forEach(id => {                    // the stranded sit just outside the rim, the matched on it
+      const nd = nodes[id], a = Math.atan2(nd.ty - g.cy, nd.tx - g.cx);
+      const R = g.r * (nd.state === 'wait' ? WAIT_OUT : 1);
+      nd.tx = g.cx + R * Math.cos(a); nd.ty = g.cy + R * Math.sin(a);
+    });
     const waits = g.m - 2 * popcount(g.mask);
     capText[g.key] = waits ? `${g.m} · ${waits} waiting` : `${g.m} · all playing`;
   });
@@ -438,10 +469,42 @@ function renderLinks(animate) {
 /* ───────────────── apply a scene ───────────────── */
 let current = 0;
 function applyScene(i) {
+  const sc = scenes[i], fromSc = scenes[prevScene];
+  // split screen ↔ four-ring grid is a pure camera move: every ring is laid out at its final spot up
+  // front and only the camera travels, framed so the ring of four renders exactly where it was at the cut.
+  // Everything that leaves is remapped into the new frame so it fades in place while riding the move.
+  const toDetail   = !!fromSc && !fromSc.detail && sc.detail;
+  const fromDetail = !!fromSc && fromSc.detail && !sc.detail;
+  const ring0Prev  = toDetail && groups.length && groups[0].m === 4
+    ? { cx: groups[0].cx, cy: groups[0].cy, r: groups[0].r } : null;
   current = i;
-  const sc = scenes[i];
   const { guides, caps, divider, boxes = [] } = computeLayout(sc);
+  // pulling back from the split screen's "late" beat: keep its T2–T3 / T4–T1 games on the ring of four
+  if (fromDetail && fromSc.stage === 'late' && groups.length && groups[0].m === 4) groups[0].mask = (1<<1)|(1<<3);
   if (!sc.detail) deriveFromGroups();
+
+  // previous camera frame, read live so an interrupted move still cuts seamlessly
+  const camM = cam.node().transform.baseVal.consolidate();
+  const s0 = camM ? camM.matrix.a : 1, t0x = camM ? camM.matrix.e : 0, t0y = camM ? camM.matrix.f : 0;
+  let camSnap = null, s1 = 1, t1x = 0, t1y = 0;
+  const g0 = fromDetail ? (groups.length && groups[0].m === 4 ? groups[0] : null) : ring0Prev;
+  if ((toDetail || fromDetail) && g0) {
+    const gz = detailGeom(innerWidth, innerHeight);
+    const ringA = { x: gz.aC[0], y: gz.aC[1], r: gz.rA }, ring0 = { x: g0.cx, y: g0.cy, r: g0.r };
+    const oldP = fromDetail ? ringA : ring0, newP = fromDetail ? ring0 : ringA;   // the same four, old world vs new
+    s1 = s0 * oldP.r / newP.r;                                                    // new frame renders the four where the
+    t1x = s0 * oldP.x + t0x - s1 * newP.x;                                        // old frame just did, at the same size
+    t1y = s0 * oldP.y + t0y - s1 * newP.y;
+    camSnap = `translate(${t1x},${t1y}) scale(${s1})`;
+    nodes.forEach(n => {                              // remap old-frame coords into the new frame: nothing jumps at the cut
+      if (n._wasShown) { n.x = (s0 * n.x + t0x - t1x) / s1; n.y = (s0 * n.y + t0y - t1y) / s1; }
+      else if (n.show) { n.x = n.tx; n.y = n.ty; }    // newcomers appear already in place, riding the camera in
+    });
+    renderPositions();
+  }
+  const camZoom = !!camSnap;
+  const remapScale = camZoom ? s0 / s1 : 1;           // exiting elements ride along at their remapped spot while fading
+  const remapX = v => (s0 * v + t0x - t1x) / s1, remapY = v => (s0 * v + t0y - t1y) / s1;
   if (sc.arriveConnect && groups.length) {        // newcomer flies in orange, then its game connects → green
     const g = groups[groups.length - 1];
     g.mask &= ~(1 << (g.m - 2));                   // start the newcomer's game OFF (it + its partner stay orange)
@@ -459,73 +522,89 @@ function applyScene(i) {
       groups.forEach(g => { g.colored = true; g.mask = maskFromMatch(matchingFor(sc.match || 'best', g.m)); });
       deriveFromGroups(); renderColors(); }, sc.revealAfter);
   }
-  if (sc.reoptimize) {                             // break a game → orange → circles swap places → new game, one at a time
-    const at = (delay, fn) => setTimeout(() => { if (current === i) fn(); }, delay);
-    const swap = (a, b) => { const x = nodes[a].tx, y = nodes[a].ty;
-      nodes[a].tx = nodes[b].tx; nodes[a].ty = nodes[b].ty; nodes[b].tx = x; nodes[b].ty = y; };
+  if (sc.reoptimize) {                             // break a game → freed teams drift just outside → stranded
+    const at = (delay, fn) => setTimeout(() => { if (current === i) fn(); }, delay);   // neighbours connect, one after another
     groups.forEach(g => g.mask = maskFromMatch(matchingFor('worst', g.m)));   // (0,1)(3,4)(6,7): three stuck per ring
     deriveFromGroups();
-    // re-pair #1 — stop the (3,4) game, swap T3 & T2 into place, then connect them
-    at(1000, () => { groups.forEach(g => g.mask &= ~(1 << 3)); deriveFromGroups(); renderColors(); });
-    at(1900, () => { groups.forEach(g => swap(g.members[2], g.members[3])); sim.alpha(0.9).alphaTarget(0).restart(); });
-    at(2900, () => { groups.forEach(g => g.mask |= (1 << 2)); deriveFromGroups(); renderColors(); });
-    // re-pair #2 — swap T5 & T4 into place, then connect them
-    at(3800, () => { groups.forEach(g => swap(g.members[4], g.members[5])); sim.alpha(0.9).alphaTarget(0).restart(); });
-    at(4800, () => { groups.forEach(g => g.mask |= (1 << 4)); deriveFromGroups(); renderColors(); });
+    const step = fn => { groups.forEach(fn); deriveFromGroups(); renderColors(); sim.alpha(0.5).alphaTarget(0).restart(); };
+    at(350,  () => step(g => g.mask &= ~(1 << 3)));   // stop the T4–T5 game — both drift just outside the rim
+    at(1250, () => step(g => g.mask |= (1 << 2)));    // T3 + T4 glide onto the ring and connect
+    at(2150, () => step(g => g.mask |= (1 << 4)));    // then T5 + T6 — only T9 is left waiting per ring
   }
   const live = !!sc.interactive;
 
   nodeSel.transition().duration(550).style('opacity', d => d.show ? (d.op ?? 1) : 0);
-  nodeSel.select('circle').attr('class', d => d.show ? d.state : 'idle')
-    .transition().duration(400).attr('r', NR);
-  nodeSel.select('text').attr('font-size', Math.max(8, NR * 0.92));
+  const fs = Math.max(7.5, NR * 0.86);
+  if (camZoom) {   // counter the camera jump so apparent sizes stay continuous, then ease to the new size with the move
+    nodeSel.select('circle').attr('class', d => d.show ? d.state : 'idle')
+      .attr('r', (+gNodes.select('circle').attr('r') || NR) * remapScale)
+      .transition().duration(1050).ease(d3.easeCubicInOut).attr('r', NR);
+    nodeSel.select('text').attr('font-size', (+gNodes.select('text').attr('font-size') || fs) * remapScale)
+      .transition().duration(1050).ease(d3.easeCubicInOut).attr('font-size', fs);
+  } else {
+    nodeSel.select('circle').attr('class', d => d.show ? d.state : 'idle')
+      .transition().duration(400).attr('r', NR);
+    nodeSel.select('text').attr('font-size', fs);
+  }
+  svg.style('--sw', clamp(NR / 14, 0.5, 1.5));     // scale strokes & captions to the circle size
   nodeSel.style('cursor', d => live && groupOf(d.id) && groupOf(d.id).colored ? 'pointer' : 'default');
 
-  // each team rides off its source circle and onto its target circle (same belt routine both ways)
-  const unwind = prevScene === 0 && i === 1;     // 27 → three nines
-  const wind   = prevScene === 1 && i === 0;     // reverse
-  spoolActive = unwind || wind;
-  nodes.forEach(d => {
-    d.plan = null;
-    if (!spoolActive || !d.show || d.id >= 27) return;
-    if (unwind) {                                // ride OFF the spool, ONTO the team's division
-      const g = groups.find(gr => gr.members.includes(d.id));
-      d.plan = spoolPlan(SPOOL, d.spoolAngle, g, Math.atan2(d.ty - g.cy, d.tx - g.cx));
-    } else {                                     // ride OFF the division, ONTO the spool
-      const src = DIVISIONS.find(div => div.members.includes(d.id));
-      if (src) d.plan = spoolPlan(src, Math.atan2(d.y - src.cy, d.x - src.cx), SPOOL, d.spoolAngle);
-    }
-  });
+  const fromScene = prevScene;
+  setupTransition(fromScene, i);                 // belt plans (shared with the precompute spec builder)
   tickClock = 0;
   prevScene = i;
 
   // collision OFF during a spool transition so circles ride the belt cleanly; ON otherwise
-  sim.force('collide').radius(d => (spoolActive || sc.reoptimize || !d.show) ? 0 : NR + 4);   // off while circles swap
+  // collision: off for swaps/clean belt riding; but on compact screens keep a gentle radius during the belt so
+  // circles queue instead of overlapping in the tight space
+  const compact = innerWidth < 620 || innerHeight < 560;
+  sim.force('collide').radius(d => !d.show ? 0 : sc.reoptimize ? 0 : spoolActive ? (compact ? NR * 0.85 : 0) : NR + 4);
 
   gBoxes.selectAll('g.divbox-g').data(boxes, d => d.key).join(
     enter => { const g = enter.append('g').attr('class', 'divbox-g');     // CSS fades opacity, not d3 (no interrupts)
       g.append('rect').attr('class', 'divbox').attr('rx', 16);
       g.append('text').attr('class', 'gcap divlabel');
-      return g; },
-    upd => upd,
-    exit => exit.remove()
-  ).each(function (d) { const g = d3.select(this);
-    g.select('rect').attr('x', d.x).attr('y', d.y).attr('width', d.w).attr('height', d.h);
-    g.select('text').attr('x', d.lx).attr('y', d.ly).text(d.label);
-  });
+      return g.each(function (d) { const b = d3.select(this);
+        b.select('rect').attr('x', d.x).attr('y', d.y).attr('width', d.w).attr('height', d.h);
+        b.select('text').attr('x', d.lx).attr('y', d.ly).text(d.label);
+      }); },
+    upd => upd.each(function (d) { const b = d3.select(this);             // reflowed layout → morph, don't jump
+      b.interrupt().style('animation', null).style('opacity', null);     // cancel a mid-exit fade if re-adopted
+      b.select('rect').transition().duration(500)
+        .attr('x', d.x).attr('y', d.y).attr('width', d.w).attr('height', d.h);
+      b.select('text').text(d.label).transition().duration(500).attr('x', d.lx).attr('y', d.ly);
+    }),
+    exit => exit.each(function () { const g = d3.select(this);   // ride the camera at the remapped spot while fading
+        if (camZoom) { const r = g.select('rect'), tl = g.select('text');
+          r.attr('x', remapX(+r.attr('x'))).attr('y', remapY(+r.attr('y')))
+           .attr('width', +r.attr('width') * remapScale).attr('height', +r.attr('height') * remapScale);
+          tl.attr('x', remapX(+tl.attr('x'))).attr('y', remapY(+tl.attr('y'))); }
+      }).call(e => e.style('animation', 'none').transition().duration(350).style('opacity', 0).remove())
+  );
 
   gGuides.selectAll('circle.guide').data(guides, d => d.key).join(
     enter => enter.append('circle').attr('class', 'guide')
       .attr('cx', d => d.cx).attr('cy', d => d.cy).attr('r', d => d.r).attr('opacity', 0)
       .call(e => e.transition().duration(550).attr('opacity', 0.9)),
-    upd => upd.call(u => u.transition().duration(500).attr('cx', d => d.cx).attr('cy', d => d.cy).attr('r', d => d.r)),
-    exit => exit.call(e => e.transition().duration(350).attr('opacity', 0).remove())
+    upd => upd.call(u => (camZoom ? u.interrupt() : u.interrupt().transition().duration(500))   // interrupt revives any
+      .attr('cx', d => d.cx).attr('cy', d => d.cy).attr('r', d => d.r).attr('opacity', 0.9)),   // mid-exit re-adoption
+    exit => exit.call(e => { if (camZoom) e.interrupt()
+        .attr('cx', function () { return remapX(+this.getAttribute('cx')); })
+        .attr('cy', function () { return remapY(+this.getAttribute('cy')); })
+        .attr('r',  function () { return +this.getAttribute('r') * remapScale; });
+      e.transition().duration(350).attr('opacity', 0).remove(); })
   );
 
   const dv = d3.select('.divider');
   if (divider) dv.attr('x1', divider.x1).attr('y1', divider.y1).attr('x2', divider.x2).attr('y2', divider.y2)
                  .interrupt().transition().duration(550).attr('opacity', 0.8);
-  else dv.interrupt().transition().duration(350).attr('opacity', 0);
+  else {
+    dv.interrupt();
+    if (camZoom && +dv.attr('opacity') > 0)          // ride the camera out at the remapped spot while fading
+      dv.attr('x1', remapX(+dv.attr('x1'))).attr('y1', remapY(+dv.attr('y1')))
+        .attr('x2', remapX(+dv.attr('x2'))).attr('y2', remapY(+dv.attr('y2')));
+    dv.transition().duration(350).attr('opacity', 0);
+  }
 
   // camera: zoom into the focused group, or pull back to identity (zoom out) everywhere else
   const W = innerWidth, H = innerHeight;
@@ -535,19 +614,33 @@ function applyScene(i) {
     const k = geom.rA / g.r;                        // zoom so the ring is the SAME size as the next (detail) step
     camT = `translate(${W/2 - k*g.cx},${geom.aC[1] - k*g.cy}) scale(${k})`;
   }
+  if (camSnap) cam.interrupt().attr('transform', camSnap);   // jump-cut to the matching framing, then travel
   cam.interrupt().transition().duration(1050).ease(d3.easeCubicInOut).attr('transform', camT);
 
   gCaps.selectAll('text.gcap').data(caps, d => d.key).join(
     enter => enter.append('text').attr('class', d => 'gcap ' + (d.cls || ''))
       .attr('x', d => d.x).attr('y', d => d.y).attr('opacity', 0).text(d => capText[d.key] || '')
       .call(e => e.transition().duration(550).attr('opacity', 1)),
-    upd => upd.call(u => { u.attr('class', d => 'gcap ' + (d.cls || '')).text(d => capText[d.key] || '')
-                            .transition().duration(450).attr('x', d => d.x).attr('y', d => d.y); }),
-    exit => exit.call(e => e.transition().duration(300).attr('opacity', 0).remove())
+    upd => upd.call(u => { u.attr('class', d => 'gcap ' + (d.cls || '')).text(d => capText[d.key] || '');
+      (camZoom ? u.interrupt() : u.interrupt().transition().duration(450))            // interrupt revives any
+        .attr('x', d => d.x).attr('y', d => d.y).attr('opacity', 1); }),              // mid-exit re-adoption
+    exit => exit.call(e => { if (camZoom) e.interrupt()
+        .attr('x', function () { return remapX(+this.getAttribute('x')); })
+        .attr('y', function () { return remapY(+this.getAttribute('y')); });
+      e.transition().duration(300).attr('opacity', 0).remove(); })
   );
 
   renderLinks(true);
-  sim.alpha(0.95).alphaTarget(spoolActive ? 0.12 : 0).restart();   // sustain energy through the slow belt ride
+  // replay precomputed frames if ready for this exact transition & size; otherwise run the live sim
+  cancelAnimationFrame(replayRAF);
+  const cached = frameCache[transKey(fromScene, i)];
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    sim.stop(); nodes.forEach(n => { n.x = n.tx; n.y = n.ty; }); renderPositions();
+  } else if (cached && cacheSize === innerWidth + 'x' + innerHeight) {
+    replayFrames(cached);
+  } else {
+    sim.alpha(0.95).alphaTarget(spoolActive ? 0.12 : 0).restart();   // sustain energy through the slow belt ride
+  }
   d3.selectAll('.dots button').classed('on', (d, k) => k === i);
 }
 
@@ -593,12 +686,19 @@ function spoolPoint(legs, t) {
 }
 
 // pure geometry of a grid scene (same math as gridLayout) so the spool can be optimized up front
+// the drawing area, leaving room for the card: bottom strip in portrait/desktop, left strip when short (landscape phone)
+function stage(W, H) {
+  const phone = W < 620, short = H < 560;
+  if (short) { const cardW = Math.min(330, W * 0.40); return { left: cardW + 26, right: W - 22, top: 38, bottom: H - 22, phone, short }; }
+  return { left: phone ? 18 : 44, right: W - (phone ? 18 : 44),
+           top: phone ? 60 : 84, bottom: H - (phone ? Math.min(300, H * 0.34) : 188), phone, short };
+}
+
 function layoutGeom(sizes, sceneCols) {
-  const W = innerWidth, H = innerHeight, phone = W < 620, nG = sizes.length;
-  const left = phone ? 18 : 44, right = W - (phone ? 18 : 44);
-  const cols = clamp(Math.floor((right - left) / (phone ? 120 : 170)), 1, Math.min(sceneCols, nG));
+  const W = innerWidth, H = innerHeight, nG = sizes.length, st = stage(W, H);
+  const left = st.left, right = st.right, top = st.top, bottom = st.bottom;
+  const cols = clamp(Math.floor((right - left) / (st.phone ? 120 : 170)), 1, Math.min(sceneCols, nG));
   const rows = Math.ceil(nG / cols);
-  const top = phone ? 64 : 84, bottom = H - (phone ? Math.min(340, H * 0.42) : 188);
   const cellW = (right - left) / cols, cellH = (bottom - top) / rows;
   const saved = NR; NR = clamp(Math.min(W, H) / 46, 7, 14);
   const out = sizes.map((m, gi) => {
@@ -638,6 +738,119 @@ function optimizeSpool() {
   });
 }
 
+// set each node's belt plan for the prevScene→idx move (shared by applyScene and the precompute spec builder)
+function setupTransition(prevIdx, idx) {
+  const unwind = prevIdx === 0 && idx === 1, wind = prevIdx === 1 && idx === 0;
+  spoolActive = unwind || wind;
+  nodes.forEach(d => {
+    d.plan = null;
+    if (!spoolActive || !d.show || d.id >= 27) return;
+    if (unwind) { const g = groups.find(gr => gr.members.includes(d.id));
+      d.plan = spoolPlan(SPOOL, d.spoolAngle, g, Math.atan2(d.ty - g.cy, d.tx - g.cx)); }
+    else { const src = DIVISIONS.find(div => div.members.includes(d.id));
+      if (src) d.plan = spoolPlan(src, Math.atan2(d.y - src.cy, d.x - src.cx), SPOOL, d.spoolAngle); }
+  });
+  return spoolActive;
+}
+
+/* ───────────────── precompute transitions in a worker, replay them at runtime ───────────────── */
+// scripted/entry scenes stay live (problem radial entry, reoptimize swaps, the detail split-screens); rest precompute
+const PRECOMP_SKIP = i => i === 2 || i === 3 || scenes[i].detail;
+const transKey = (a, b) => a + '>' + b;
+const frameCache = {};                            // key → Float32Array (settled-prev → targets), for the current size
+let cacheSize = '';
+
+// build a serializable spec for the from→to transition (clobbers the live layout state; caller resets after)
+function buildSpec(from, to) {
+  computeLayout(scenes[from]);
+  const start = nodes.map(n => [n.tx, n.ty]);     // settled FROM = its targets (rings sit exactly on their slots)
+  computeLayout(scenes[to]);
+  if (!scenes[to].detail) deriveFromGroups();
+  const active = setupTransition(from, to);
+  const compact = innerWidth < 620 || innerHeight < 560;
+  return {
+    key: transKey(from, to),
+    start,
+    target: nodes.map(n => ({ tx: n.tx, ty: n.ty, show: n.show, plan: n.plan })),
+    collide: nodes.map(n => !n.show ? 0 : active ? (compact ? NR * 0.85 : 0) : NR + 4),
+    alphaTarget: active ? 0.12 : 0,
+    maxTicks: 900
+  };
+}
+
+// the worker: identical headless force (custom pull-to-target/plan + collide), records positions per tick
+const WORKER_SRC = `
+importScripts('https://cdn.jsdelivr.net/npm/d3@7');
+const SPIN_OMEGA = ${SPIN_OMEGA};
+const onArc = (c,a) => [c.cx + c.r*Math.cos(a), c.cy + c.r*Math.sin(a)];
+const lerp2 = (p,q,t) => [p[0]+(q[0]-p[0])*t, p[1]+(q[1]-p[1])*t];
+function spoolPoint(legs,t){ const last=legs[legs.length-1];
+  for(const l of legs) if(t < l.t0+l.dur || l===last){ const p=Math.max(0,Math.min(1,(t-l.t0)/l.dur));
+    if(l.arc) return onArc(l.arc, l.from - l.span*p);
+    if(l.spiral){ const cx=l.fromC.cx+(l.toC.cx-l.fromC.cx)*p, cy=l.fromC.cy+(l.toC.cy-l.fromC.cy)*p;
+      const R=l.fromR+(l.toR-l.fromR)*p, a=l.fromA-l.sweep*p; return [cx+R*Math.cos(a), cy+R*Math.sin(a)]; }
+    return lerp2(l.p,l.q,p); } }
+let T = 0;
+function targetForce(){ let ns; const f=alpha=>{ for(const d of ns){ if(!d.show) continue;
+    if(d.plan){ const pt=spoolPoint(d.plan,T); d.vx+=(pt[0]-d.x)*0.5*alpha; d.vy+=(pt[1]-d.y)*0.5*alpha; }
+    else { d.vx+=(d.tx-d.x)*0.035*alpha; d.vy+=(d.ty-d.y)*0.035*alpha; } } };
+  f.initialize=_=>ns=_; return f; }
+onmessage = e => {
+  const specs = e.data, results = [], buffers = [];
+  for (const spec of specs) {
+    const N = spec.target.length;
+    const nodes = spec.target.map((t,i) => ({ x: spec.start[i][0], y: spec.start[i][1], vx:0, vy:0,
+      tx:t.tx, ty:t.ty, show:t.show, plan:t.plan, _c: spec.collide[i] }));
+    const sim = d3.forceSimulation(nodes).force('t', targetForce())
+      .force('c', d3.forceCollide().radius(d=>d._c).strength(0.9)).velocityDecay(0.45).alphaDecay(0.006).stop();
+    sim.alpha(0.95).alphaTarget(spec.alphaTarget);
+    const planEnd = Math.max(0, ...nodes.map(n => n.plan ? n.plan[n.plan.length-1].t0 + n.plan[n.plan.length-1].dur : 0));
+    const frames = [];
+    for (T = 0; T < spec.maxTicks; T++) { sim.tick(); const f = new Array(N*2); let mv = 0;
+      for (let i=0;i<N;i++){ f[i*2]=nodes[i].x; f[i*2+1]=nodes[i].y;
+        const v = nodes[i].vx*nodes[i].vx + nodes[i].vy*nodes[i].vy; if (v > mv) mv = v; }
+      frames.push(f);
+      if (T > planEnd + 4 && mv < 0.04) break; }   // stop once everything has effectively come to rest
+    const arr = new Float32Array(frames.length * N * 2);
+    for (let k=0;k<frames.length;k++) arr.set(frames[k], k*N*2);
+    results.push({ key: spec.key, n: N, frames: frames.length, data: arr }); buffers.push(arr.buffer);
+  }
+  postMessage(results, buffers);
+};`;
+let worker = null;
+try {
+  worker = new Worker(URL.createObjectURL(new Blob([WORKER_SRC], { type: 'text/javascript' })));
+  worker.onmessage = e => e.data.forEach(r => { frameCache[r.key] = r.data; });
+  worker.onerror = () => { worker = null; };   // CDN/import failure → fall back to the live sim, no crash
+} catch (_) { worker = null; }   // no worker → always live (graceful)
+
+// (re)build all precomputable specs for the current size and hand them to the worker
+function precomputeAll() {
+  if (!worker) return;
+  const N = scenes.length, specs = [];
+  for (let a = 0; a < N; a++) for (const b of [a - 1, a + 1]) {
+    if (b < 0 || b >= N || PRECOMP_SKIP(a) || PRECOMP_SKIP(b)) continue;
+    specs.push(buildSpec(a, b));
+  }
+  cacheSize = innerWidth + 'x' + innerHeight;
+  for (const k in frameCache) delete frameCache[k];
+  worker.postMessage(specs);
+}
+
+// replay precomputed frames instead of running the live sim
+let replayRAF = 0;
+function replayFrames(arr) {
+  sim.stop(); cancelAnimationFrame(replayRAF);
+  const N = nodes.length, total = arr.length / (N * 2);
+  let f = 0;
+  (function step() {
+    const base = f * N * 2;
+    for (let i = 0; i < N; i++) { nodes[i].x = arr[base + i * 2]; nodes[i].y = arr[base + i * 2 + 1]; }
+    renderPositions();
+    if (++f < total) replayRAF = requestAnimationFrame(step);
+  })();
+}
+
 function targetForce() {
   let ns;
   const add = (d, tx, ty, k, a) => { d.vx += (tx - d.x) * k * a; d.vy += (ty - d.y) * k * a; };
@@ -652,18 +865,20 @@ function targetForce() {
   return f;
 }
 
+// paint current node positions to the DOM (shared by the live sim tick and the precomputed replay)
+function renderPositions() {
+  nodeSel.attr('transform', d => `translate(${d.x},${d.y})`);
+  gLinks.selectAll('line')
+    .attr('x1', d => nodes[d.a].x).attr('y1', d => nodes[d.a].y)
+    .attr('x2', d => nodes[d.b].x).attr('y2', d => nodes[d.b].y);
+}
+
 // physics: gentle pull toward each slot + collision; slow, graceful glide
 const sim = d3.forceSimulation(nodes)
   .force('target', targetForce())
   .force('collide', d3.forceCollide().radius(d => d.show ? NR + 4 : 0).strength(0.9))
   .velocityDecay(0.45).alphaDecay(0.006)
-  .on('tick', () => {
-    tickClock++;
-    nodeSel.attr('transform', d => `translate(${d.x},${d.y})`);
-    gLinks.selectAll('line')
-      .attr('x1', d => nodes[d.a].x).attr('y1', d => nodes[d.a].y)
-      .attr('x2', d => nodes[d.b].x).attr('y2', d => nodes[d.b].y);
-  });
+  .on('tick', () => { tickClock++; renderPositions(); });
 
 /* ── interactivity: click a team to re-pair, click a game to break it (only on flagged scenes) ── */
 nodeSel.on('click', (ev, d) => {
@@ -672,6 +887,7 @@ nodeSel.on('click', (ev, d) => {
   if (!g || !g.colored || !g.interactive) return;
   cycleTeam(g, g.members.indexOf(d.id));
   deriveFromGroups(); renderColors();
+  sim.alpha(0.4).alphaTarget(0).restart();         // glide the re-paired in and the newly stranded out
 });
 function onLinkClick(d) {
   if (!scenes[current].interactive) return;
@@ -680,6 +896,7 @@ function onLinkClick(d) {
   const ia = g.members.indexOf(d.a), ib = g.members.indexOf(d.b);
   g.mask &= ~(1 << (ib === (ia + 1) % g.m ? ia : ib));     // turn that edge off
   deriveFromGroups(); renderColors();
+  sim.alpha(0.4).alphaTarget(0).restart();
 }
 
 /* ───────────────── build the scrolling narrative + wiring ───────────────── */
@@ -702,12 +919,16 @@ scenes.forEach((sc, i) => {
 
 const sections = [...document.querySelectorAll('.step')];
 
-// the section crossing the viewport centre is the active scene
+// the section crossing the viewport centre is the active scene; the one it replaces fades up & out
+let activeSec = null;
 const io = new IntersectionObserver(entries => {
   entries.forEach(e => {
-    if (!e.isIntersecting) return;
+    if (!e.isIntersecting || e.target === activeSec) return;
+    if (activeSec) { const old = activeSec; old.classList.remove('active'); old.classList.add('exiting');
+      setTimeout(() => old.classList.remove('exiting'), 600); }
+    e.target.classList.add('active'); e.target.classList.remove('exiting');
+    activeSec = e.target;
     const i = +e.target.dataset.i;
-    sections.forEach(s => s.classList.toggle('active', s === e.target));
     if (i !== current) applyScene(i);
   });
 }, { rootMargin: '-45% 0px -45% 0px', threshold: 0 });
@@ -728,12 +949,13 @@ addEventListener('scroll', () => {
 }, { passive: true });
 
 let rt;
-addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { optimizeSpool(); applyScene(current); }, 120); });
+addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { optimizeSpool(); precomputeAll(); applyScene(current); }, 160); });
 
 // start: scatter near centre, then settle into scene 0
 nodes.forEach(nd => { nd.x = innerWidth/2 + (Math.random()-0.5)*200; nd.y = innerHeight/2 + (Math.random()-0.5)*200; });
 optimizeSpool();
-sections[0].classList.add('active');
+precomputeAll();                                   // kick off the worker in the background (live sim until frames arrive)
+sections[0].classList.add('active'); activeSec = sections[0];
 applyScene(0);
 </script>
 </body>
