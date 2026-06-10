@@ -157,6 +157,17 @@ function cycleTeam(g, k) {                       // click a team: unmatched → 
   else { const rF = !occ((k+1)%m), lF = !occ((k-1+m)%m); setEdge(g, rF || !lF ? R : L); }
 }
 
+/* ── scene-scoped choreography ──
+   Every applyScene call takes a fresh sequence number; `at(delay, fn)` callbacks scheduled by
+   an earlier call are dropped, so a scene's timed script can never fire against a layout it
+   wasn't written for — whether the scene changed or the same scene re-applied (resize). */
+let applySeq = 0;
+function sceneTimer() {
+  const seq = ++applySeq;
+  return { at: (delay, fn) => setTimeout(() => { if (applySeq === seq) fn(); }, delay) };
+}
+const refresh = () => { deriveFromGroups(); renderColors(); };   // recolour in place after a mask change
+
 /* ───────────────── the scenes (scroll stops) ───────────────── */
 const DIVRINGS = evenGroups(27, 3).map(g => splitGroups(g, 4));    // [[4,4],[4,4],[4,7]] — rings per division
 const FIX   = DIVRINGS.flat();                                     // [4,4,4,4,4,7]
@@ -177,7 +188,7 @@ const scenes = [
     kicker:'Today', title:'Three divisions of nine',
     body:'We split the league into three pools of nine and let people play whoever of their two opponents is free.' },
 
-  { key:'problem', sizes:[9,9,9], cols:3, colored:true, match:'worst', interactive:true,
+  { key:'problem', sizes:[9,9,9], cols:3, colored:true, match:'worst', interactive:true, live:true,
     kicker:'The problem', title:'Nine is odd — people get stranded',
     body:'On a bad night, three teams in every division are stuck at once, both of their opponents already busy.',
     stat:{ n:18, tone:'bad', text:'people standing around for an hour — while it gets dark' } },
@@ -185,11 +196,27 @@ const scenes = [
   { key:'reoptimize', sizes:[9,9,9], cols:3, colored:true, match:'best', reoptimize:true, interactive:true,
     kicker:'Salvaging it', title:'Interrupt games and re-pair',
     body:'Once games are already underway you cannot undo a bad start — you have to stop matches mid-game and re-pair, until only one team per division is left waiting.',
-    stat:{ n:6, tone:'bad', text:'people wait — the best three nines can manage' } },
+    stat:{ n:6, tone:'bad', text:'people wait — the best three nines can manage' },
+    run: ({ at }) => {                             // break a game → freed teams drift just outside →
+      groups.forEach(g => g.mask = maskFromMatch(matchingFor('worst', g.m)));   // (0,1)(3,4)(6,7): three stuck per ring
+      deriveFromGroups();                          // stranded neighbours connect, one after another
+      const step = fn => { groups.forEach(fn); refresh(); sim.alpha(0.5).alphaTarget(0).restart(); };
+      at(350,  () => step(g => g.mask &= ~(1 << 3)));   // stop the T4–T5 game — both drift just outside the rim
+      at(1250, () => step(g => g.mask |= (1 << 2)));    // T3 + T4 glide onto the ring and connect
+      at(2150, () => step(g => g.mask |= (1 << 4)));    // then T5 + T6 — only T9 is left waiting per ring
+    } },
 
-  { key:'rebalance', sizes:[8,8,11], cols:3, colored:true, match:'best', revealAfter:1100,
+  { key:'rebalance', sizes:[8,8,11], cols:3, colored:true, match:'best',
     kicker:'Fix · step 1', title:'Re-balance into 8 · 8 · 11',
-    body:'Same teams, new groupings — resized toward even, four-friendly sizes. Now the games pair up: the two eights leave nobody waiting, the eleven just one.' },
+    body:'Same teams, new groupings — resized toward even, four-friendly sizes. Now the games pair up: the two eights leave nobody waiting, the eleven just one.',
+    run: ({ at }) => {                             // show just the regrouped circles, then let the games pair up
+      groups.forEach(g => g.colored = false);
+      deriveFromGroups();
+      at(1100, () => {
+        groups.forEach(g => { g.colored = true; g.mask = maskFromMatch(matchingFor('best', g.m)); });
+        refresh();
+      });
+    } },
 
   { key:'split', sizes:FIX, cols:3, colored:false, ...SPLITGRID,
     kicker:'Fix · step 2', title:'Split into rings of four',
@@ -212,10 +239,17 @@ const scenes = [
     body:'A ring of four can never strand anyone, no matter who shows up. Only the one leftover ring of seven carries a wait.',
     stat:{ n:2, tone:'good', text:'people wait — guaranteed, every single night' } },
 
-  { key:'bonus', sizes:BONUS, cols:3, colored:true, match:'best', extra:true, interactive:true, arriveConnect:true, ...BONUSGRID,
+  { key:'bonus', sizes:BONUS, cols:3, colored:true, match:'best', extra:true, interactive:true, ...BONUSGRID,
     kicker:'Bonus', title:'Add one fill-in → nobody waits',
     body:'Scrounge up a 28th team and division three’s leftover seven becomes a clean third ring of four — the newcomer joins the team that was waiting, and the last wait disappears.',
-    stat:{ n:0, tone:'good', text:'people wait' } },
+    stat:{ n:0, tone:'good', text:'people wait' },
+    run: ({ at }) => {                             // newcomer flies in orange, then its game connects → green
+      const g = groups[groups.length - 1];
+      if (!g) return;
+      g.mask &= ~(1 << (g.m - 2));                 // start the newcomer's game OFF (it + its partner stay orange)
+      deriveFromGroups();
+      at(1700, () => { g.mask |= (1 << (g.m - 2)); refresh(); });   // connection made — both turn green
+    } },
 ];
 
 /* ───────────────── the persistent circles + physics ───────────────── */
@@ -370,9 +404,10 @@ function detailLayout(scene, W, H, phone) {
   // LEFT — ring of four, real T1..T4. setup: T2-T3 play, T4 waits, T1 late. late: T1 joins T4, all play.
   const enter = geom.portrait ? 'left' : 'top';     // portrait (stacked) → enter from the left; landscape → top
   placeDetailRing([0,1,2,3], aC[0], aC[1], rA,
-    stage === 'late' ? ((1<<1)|(1<<3)) : (1<<1),
+    stage === 'late' && scene.paired !== false ? ((1<<1)|(1<<3)) : (1<<1),   // paired:false = T1 has arrived, not yet paired
     { lateSlot: 0, stage, m: 4, ghostFrom: 99, key: 'L', enter, titleY: tShared ?? tA },
-    guides, caps, 'A ring of four', stage === 'late' ? '4 · all playing' : 'T2–T3 play · T4 waits');
+    guides, caps, 'A ring of four',
+    stage !== 'late' ? 'T2–T3 play · T4 waits' : scene.paired === false ? 'T1 arrives — T4 is free' : '4 · all playing');
 
   // RIGHT — same four inside a nine (T5..T9 are strangers/ghosts). T1's neighbours pair off with others.
   placeDetailRing(d3.range(9).map(i => 28 + i), bC[0], bC[1], rB,
@@ -478,7 +513,14 @@ function applyScene(i) {
   const ring0Prev  = toDetail && groups.length && groups[0].m === 4
     ? { cx: groups[0].cx, cy: groups[0].cy, r: groups[0].r } : null;
   current = i;
-  const { guides, caps, divider, boxes = [] } = computeLayout(sc);
+  const { at } = sceneTimer();                       // this scene's timer scope; cancels all earlier ones
+  // arriving from the split-screen setup: T1 first pauses just outside the rim, then pairs with T4
+  const stagedArrive = sc.key === 'latearrival' && !!fromSc && fromSc.key === 'twoworlds';
+  const { guides, caps, divider, boxes = [] } = computeLayout(stagedArrive ? { ...sc, paired: false } : sc);
+  if (stagedArrive) at(1800, () => {
+    computeLayout(sc); renderColors();               // T1 + T4 step onto the ring and connect
+    sim.alpha(0.5).alphaTarget(0).restart();
+  });
   // pulling back from the split screen's "late" beat: keep its T2–T3 / T4–T1 games on the ring of four
   if (fromDetail && fromSc.stage === 'late' && groups.length && groups[0].m === 4) groups[0].mask = (1<<1)|(1<<3);
   if (!sc.detail) deriveFromGroups();
@@ -505,32 +547,7 @@ function applyScene(i) {
   const camZoom = !!camSnap;
   const remapScale = camZoom ? s0 / s1 : 1;           // exiting elements ride along at their remapped spot while fading
   const remapX = v => (s0 * v + t0x - t1x) / s1, remapY = v => (s0 * v + t0y - t1y) / s1;
-  if (sc.arriveConnect && groups.length) {        // newcomer flies in orange, then its game connects → green
-    const g = groups[groups.length - 1];
-    g.mask &= ~(1 << (g.m - 2));                   // start the newcomer's game OFF (it + its partner stay orange)
-    deriveFromGroups();
-    setTimeout(() => {
-      if (current !== i) return;                   // still on this scene?
-      g.mask |= (1 << (g.m - 2));                  // connection made — both turn green
-      deriveFromGroups(); renderColors();
-    }, 1700);
-  }
-  if (sc.revealAfter != null) {                    // show just the regrouped circles, then let the games pair up
-    groups.forEach(g => g.colored = false);
-    deriveFromGroups();
-    setTimeout(() => { if (current !== i) return;
-      groups.forEach(g => { g.colored = true; g.mask = maskFromMatch(matchingFor(sc.match || 'best', g.m)); });
-      deriveFromGroups(); renderColors(); }, sc.revealAfter);
-  }
-  if (sc.reoptimize) {                             // break a game → freed teams drift just outside → stranded
-    const at = (delay, fn) => setTimeout(() => { if (current === i) fn(); }, delay);   // neighbours connect, one after another
-    groups.forEach(g => g.mask = maskFromMatch(matchingFor('worst', g.m)));   // (0,1)(3,4)(6,7): three stuck per ring
-    deriveFromGroups();
-    const step = fn => { groups.forEach(fn); deriveFromGroups(); renderColors(); sim.alpha(0.5).alphaTarget(0).restart(); };
-    at(350,  () => step(g => g.mask &= ~(1 << 3)));   // stop the T4–T5 game — both drift just outside the rim
-    at(1250, () => step(g => g.mask |= (1 << 2)));    // T3 + T4 glide onto the ring and connect
-    at(2150, () => step(g => g.mask |= (1 << 4)));    // then T5 + T6 — only T9 is left waiting per ring
-  }
+  if (sc.run) sc.run({ at });                     // the scene's timed choreography (defined on its config)
   const live = !!sc.interactive;
 
   nodeSel.transition().duration(550).style('opacity', d => d.show ? (d.op ?? 1) : 0);
@@ -754,8 +771,8 @@ function setupTransition(prevIdx, idx) {
 }
 
 /* ───────────────── precompute transitions in a worker, replay them at runtime ───────────────── */
-// scripted/entry scenes stay live (problem radial entry, reoptimize swaps, the detail split-screens); rest precompute
-const PRECOMP_SKIP = i => i === 2 || i === 3 || scenes[i].detail;
+// scripted scenes stay on the live sim (live/reoptimize flags, the detail split-screens); rest precompute
+const PRECOMP_SKIP = i => { const sc = scenes[i]; return !!(sc.live || sc.reoptimize || sc.detail); };
 const transKey = (a, b) => a + '>' + b;
 const frameCache = {};                            // key → Float32Array (settled-prev → targets), for the current size
 let cacheSize = '';
@@ -886,7 +903,7 @@ nodeSel.on('click', (ev, d) => {
   const g = groupOf(d.id);
   if (!g || !g.colored || !g.interactive) return;
   cycleTeam(g, g.members.indexOf(d.id));
-  deriveFromGroups(); renderColors();
+  refresh();
   sim.alpha(0.4).alphaTarget(0).restart();         // glide the re-paired in and the newly stranded out
 });
 function onLinkClick(d) {
@@ -895,7 +912,7 @@ function onLinkClick(d) {
   if (!g) return;
   const ia = g.members.indexOf(d.a), ib = g.members.indexOf(d.b);
   g.mask &= ~(1 << (ib === (ia + 1) % g.m ? ia : ib));     // turn that edge off
-  deriveFromGroups(); renderColors();
+  refresh();
   sim.alpha(0.4).alphaTarget(0).restart();
 }
 
