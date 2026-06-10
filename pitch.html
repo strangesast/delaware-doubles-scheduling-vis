@@ -1,0 +1,740 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>27 teams, 2 people waiting — a scheduling story</title>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<style>
+  :root { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; }
+  body { margin: 0; color: #0f172a; background: #0b1220; }
+  ::-webkit-scrollbar { width: 0; }
+
+  /* fixed full-screen physics graphic, behind the scrolling text */
+  #graphic { position: fixed; inset: 0; z-index: 0;
+             background: radial-gradient(120% 100% at 70% 10%, #16233b 0%, #0b1220 60%); }
+  #graphic svg { width: 100%; height: 100%; display: block; }
+
+  /* ring guides, pairing links, team circles */
+  .guide { fill: none; stroke: #2b3c5a; stroke-width: 2; }
+  .divider { stroke: #33456b; stroke-width: 2; stroke-dasharray: 3 9; stroke-linecap: round; }
+  .pair  { stroke: #34d399; stroke-width: 5; stroke-linecap: round; }
+  .hit   { stroke: transparent; stroke-width: 18; }
+  .team circle { stroke-width: 2.5; transition: fill .55s ease, stroke .55s ease; filter: url(#soft); }
+  .team .idle, .team circle.idle { fill: #64748b; stroke: #94a3b8; }
+  .team circle.play { fill: #22c55e; stroke: #86efac; }
+  .team circle.wait { fill: #f97316; stroke: #fdba74; }
+  .team circle      { fill: #64748b; stroke: #94a3b8; }
+  .team text { fill: #fff; font-size: 12.5px; font-weight: 700; text-anchor: middle;
+               dominant-baseline: central; pointer-events: none; }
+  .gcap { fill: #94a3b8; font-size: 14px; font-weight: 600; text-anchor: middle; }
+  .gcap.title { fill: #e2e8f0; font-size: 16px; font-weight: 700; }
+  .gcap.note  { fill: #fbbf24; font-size: 12.5px; font-weight: 700; }
+  .gcap.divlabel { fill: #cbd5e1; font-size: 15px; font-weight: 700; letter-spacing: .05em; }
+  .divbox { fill: rgba(96,165,250,0.06); stroke: #4a6da3; stroke-width: 2; stroke-dasharray: 5 7; }
+  .divbox-g { animation: fadein .6s ease both; }
+  @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+
+  /* scrolling narrative */
+  main { position: relative; z-index: 1; pointer-events: none; }   /* clicks fall through to the graphic; .card re-enables */
+  .step { height: 100vh; height: 100dvh; scroll-snap-align: center; position: relative; pointer-events: none; }
+  .card {
+    pointer-events: auto;
+    position: absolute; left: 5vw; bottom: 9vh; width: min(460px, 88vw);
+    background: rgba(255,255,255,0.92); backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.6); border-radius: 20px; padding: 22px 26px;
+    box-shadow: 0 24px 60px -22px rgba(0,0,0,0.6);
+    opacity: 0; transform: translateY(34px); will-change: opacity, transform;
+    transition: opacity .6s cubic-bezier(.22,.61,.36,1), transform .6s cubic-bezier(.22,.61,.36,1);
+  }
+  .step.active .card { opacity: 1; transform: translateY(0); }   /* fade + rise on arrive, fade + drop on depart */
+  .kicker { font-size: 12px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase;
+            color: #2563eb; margin-bottom: 8px; }
+  .card h2 { margin: 0 0 8px; font-size: 23px; line-height: 1.2; }
+  .card p  { margin: 0; font-size: 15px; line-height: 1.55; color: #475569; }
+  .stat { margin-top: 14px; display: flex; align-items: baseline; gap: 9px;
+          padding-top: 13px; border-top: 1px solid #eef2f7; }
+  .stat .num  { font-size: 40px; font-weight: 800; line-height: 1; }
+  .stat .unit { font-size: 14px; color: #475569; }
+  .stat.bad  .num { color: #ea580c; }
+  .stat.good .num { color: #16a34a; }
+  .tryit { margin-top: 14px; font-size: 12.5px; font-weight: 700; color: #2563eb;
+           display: inline-flex; align-items: center; gap: 6px; }
+  .hint { margin-top: 16px; font-size: 13px; color: #94a3b8; font-weight: 600;
+          animation: bob 1.8s ease-in-out infinite; }
+  @keyframes bob { 0%,100%{ transform: translateY(0); } 50%{ transform: translateY(4px); } }
+
+  /* chrome: title, progress, nav dots */
+  .brand { position: fixed; top: 20px; left: 5vw; z-index: 3; color: #e2e8f0;
+           font-size: 13px; font-weight: 700; letter-spacing: .04em; opacity: .85; pointer-events: none; }
+  .brand span { color: #60a5fa; }
+  #progress { position: fixed; top: 0; left: 0; height: 3px; width: 0;
+              background: linear-gradient(90deg,#3b82f6,#22c55e); z-index: 4; transition: width .15s; }
+  .dots { position: fixed; right: 22px; top: 50%; transform: translateY(-50%);
+          z-index: 3; display: flex; flex-direction: column; gap: 12px; }
+  .dots button { width: 11px; height: 11px; border-radius: 50%; border: 0; padding: 0; cursor: pointer;
+                 background: rgba(148,163,184,0.45); transition: all .25s; }
+  .dots button.on { background: #e2e8f0; transform: scale(1.45); }
+
+  @media (max-width: 620px) {
+    .card { left: 50%; width: 90vw; transform: translateX(-50%) translateY(34px); bottom: 5vh; }
+    .step.active .card { transform: translateX(-50%) translateY(0); }
+    .card h2 { font-size: 20px; }
+    .dots { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="progress"></div>
+<div class="brand">Delaware Doubles · <span>scheduling</span></div>
+<div id="graphic">
+  <svg>
+    <defs>
+      <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
+        <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.45"/>
+      </filter>
+    </defs>
+    <g class="cam">
+      <line class="divider" opacity="0"></line>
+      <g class="boxes"></g>
+      <g class="guides"></g>
+      <g class="links"></g>
+      <g class="nodes"></g>
+      <g class="caps"></g>
+    </g>
+  </svg>
+</div>
+
+<main></main>
+<div class="dots"></div>
+
+<script>
+/* ───────────────── helpers from the ring visualization ───────────────── */
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const splitGroups = (total, target) => {            // matches ring.js / observable.md: 11,4 → [4,7] (every ring ≥ 4)
+  const g = Math.max(1, Math.floor(total / target));
+  return Array.from({ length: g }, (_, i) => i < g - 1 ? target : total - target * (g - 1));
+};
+const evenGroups = (total, divisions) => {          // 27,3 → [8,8,11]
+  const D = Math.max(1, Math.min(divisions, Math.floor(total / 4)));
+  let base = Math.max(4, 4 * Math.round(total / D / 4));
+  while (D > 1 && total - base * (D - 1) < 4) base -= 4;
+  return Array.from({ length: D }, (_, i) => i < D - 1 ? base : total - base * (D - 1));
+};
+// a maximum matching of a ring of m (pairs neighbours, leaves the last one out if odd)
+const best = m => { const pairs = []; for (let s = 0; s + 1 < m; s += 2) pairs.push([s, s + 1]);
+  return { pairs, wait: m % 2 ? [m - 1] : [] }; };
+// worst stable stall for the 9-ring: games (0-1)(3-4)(6-7) strand 2,5,8 — the bad night
+const matchingFor = (kind, m) =>
+  (kind === 'worst' && m === 9) ? { pairs: [[0,1],[3,4],[6,7]], wait: [2,5,8] } : best(m);
+const sliceMembers = (ids, sizes) => { let i = 0; return sizes.map(s => ids.slice(i, i += s)); };
+
+// ── ring-matching state (a bitmask per group: bit k = member k plays member k+1) ──
+const onBit = (mask, k) => (mask >> k) & 1;
+const popcount = x => { let c = 0; while (x) { c += x & 1; x >>= 1; } return c; };
+const maskFromMatch = match => { let m = 0; match.pairs.forEach(([s]) => m |= 1 << s); return m; };
+function setEdge(g, e) { const m = g.m; g.mask &= ~(1<<((e-1+m)%m)); g.mask &= ~(1<<((e+1)%m)); g.mask |= 1<<e; }
+function cycleTeam(g, k) {                       // click a team: unmatched → right → left → unmatched
+  const m = g.m, R = k, L = (k-1+m)%m, on = j => onBit(g.mask, j);
+  const occ = j => on(j) || on((j-1+m)%m);
+  if (on(R)) setEdge(g, L);
+  else if (on(L)) g.mask &= ~(1 << L);
+  else { const rF = !occ((k+1)%m), lF = !occ((k-1+m)%m); setEdge(g, rF || !lF ? R : L); }
+}
+
+/* ───────────────── the scenes (scroll stops) ───────────────── */
+const DIVRINGS = evenGroups(27, 3).map(g => splitGroups(g, 4));    // [[4,4],[4,4],[4,4,3]] — rings per division
+const FIX   = DIVRINGS.flat();                                     // [4,4,4,4,4,4,3]
+const BONUS = [...FIX.slice(0, -1), FIX[FIX.length - 1] + 1];      // the lone odd ring gains the 28th team
+// shared layout: one column per division, that division's rings stacked (keeps each ring in its division)
+const SPLITGRID = { byColumn: true, divisions: 3,
+  ringDiv: DIVRINGS.flatMap((rs, d) => rs.map(() => d)),
+  ringRow: DIVRINGS.flatMap(rs => rs.map((_, r) => r)),
+  divRows: Math.max(...DIVRINGS.map(rs => rs.length)) };
+
+const scenes = [
+  { key:'all', sizes:[27], cols:1, colored:false,
+    kicker:'The league', title:'27 teams',
+    body:'Every team is scheduled to play just its two neighbours in the circle. Watch how we group them.' },
+
+  { key:'today', sizes:[9,9,9], cols:3, colored:false,
+    kicker:'Today', title:'Three divisions of nine',
+    body:'We split the league into three pools of nine and let people play whoever of their two opponents is free.' },
+
+  { key:'problem', sizes:[9,9,9], cols:3, colored:true, match:'worst', interactive:true,
+    kicker:'The problem', title:'Nine is odd — people get stranded',
+    body:'On a bad night, three teams in every division are stuck at once, both of their opponents already busy.',
+    stat:{ n:18, tone:'bad', text:'people standing around for an hour — while it gets dark' } },
+
+  { key:'reoptimize', sizes:[9,9,9], cols:3, colored:true, match:'best', reoptimize:true, interactive:true,
+    kicker:'Salvaging it', title:'Interrupt games and re-pair',
+    body:'Once games are already underway you cannot undo a bad start — you have to stop matches mid-game and re-pair, until only one team per division is left waiting.',
+    stat:{ n:6, tone:'bad', text:'people wait — the best three nines can manage' } },
+
+  { key:'rebalance', sizes:[8,8,11], cols:3, colored:true, match:'best', revealAfter:1100,
+    kicker:'Fix · step 1', title:'Re-balance into 8 · 8 · 11',
+    body:'Same teams, new groupings — resized toward even, four-friendly sizes. Now the games pair up: the two eights leave nobody waiting, the eleven just one.' },
+
+  { key:'split', sizes:FIX, cols:3, colored:false, ...SPLITGRID,
+    kicker:'Fix · step 2', title:'Split into rings of four',
+    body:'Break each division into its own independent rings of four — plus the one leftover ring — each kept within its division.' },
+
+  { key:'zoom', sizes:FIX, cols:3, colored:true, match:'best', interactive:true, focus:0, ...SPLITGRID,
+    kicker:'Look closer', title:'Zoom in on one ring of four',
+    body:'The camera dives into a single ring of four. Break a game or make one — it always pairs back up, with nobody left out.' },
+
+  { key:'twoworlds', detail:true, stage:'setup',
+    kicker:'Two worlds', title:'The same four, two ways',
+    body:'Left: their own ring of four. Right: the same four sharing a ring of nine, the old way. One team (T1) is running late to both.' },
+
+  { key:'latearrival', detail:true, stage:'late',
+    kicker:'Watch', title:'T1 finally shows up',
+    body:'In the four, a free partner is always waiting — T1 plays at once. In the nine, both its neighbours already paired off with strangers, so T1 is stranded for the hour.' },
+
+  { key:'payoff', sizes:FIX, cols:3, colored:true, match:'best', interactive:true, reserveLast:true, ...SPLITGRID,
+    kicker:'The payoff', title:'Exactly one team ever waits',
+    body:'A ring of four can never strand anyone, no matter who shows up. Only the one leftover ring carries a wait — see the empty spot beside it.',
+    stat:{ n:2, tone:'good', text:'people wait — guaranteed, every single night' } },
+
+  { key:'bonus', sizes:BONUS, cols:3, colored:true, match:'best', extra:true, interactive:true, arriveConnect:true, ...SPLITGRID,
+    kicker:'Bonus', title:'Add one fill-in → nobody waits',
+    body:'Scrounge up a 28th team and the lone odd ring becomes even — the newcomer slots in beside the team that was waiting, and the last wait disappears.',
+    stat:{ n:0, tone:'good', text:'people wait' } },
+];
+
+/* ───────────────── the persistent circles + physics ───────────────── */
+let NR = 14;                                   // node radius — recomputed per viewport
+const SPREAD = 0.30, CAP = 0.46;
+let tickClock = 0, prevScene = -1;
+// the 27↔nines move: each team rides OFF its source circle at a tangent, hops the gap, and rides ONTO
+// its target circle to its slot — one belt routine (spoolPlan) drives both directions
+let spoolActive = false;
+let SPOOL = { cx: 0, cy: 0, r: 200 };          // big-circle centre/radius, captured from the "27 teams" scene
+let DIVISIONS = [];                            // the three nine-ring centres, captured from the nines scene
+const SPIN_OMEGA = 0.05;                         // how fast a team rides a circle (rad/tick) — slow & legible
+const FLIGHT = 20;                              // ticks for the tangent hop between two circles
+
+// reals T1..T28 carry the story; clones T1..T9 are the "hypothetical" copies for the split screen
+const reals  = d3.range(28).map(i => ({ id: i,      label: 'T'+(i+1), kind:'real', spoolAngle: -Math.PI/2 + i * 2 * Math.PI / 27 }));
+const clones = d3.range(9 ).map(i => ({ id: 28 + i, label: 'T'+(i+1), kind:'clone', ghost: i >= 4 }));
+const nodes  = reals.concat(clones);
+nodes.forEach(n => Object.assign(n, { x:0, y:0, tx:0, ty:0, state:'idle', show:false, op:1 }));
+
+const svg     = d3.select('#graphic svg');
+const gBoxes  = svg.select('g.boxes');
+const gGuides = svg.select('g.guides');
+const gLinks  = svg.select('g.links');
+const gNodes  = svg.select('g.nodes');
+const gCaps   = svg.select('g.caps');
+const cam     = svg.select('g.cam').attr('transform', 'translate(0,0) scale(1)');
+
+const nodeSel = gNodes.selectAll('g.team').data(nodes).join(enter => {
+  const g = enter.append('g').attr('class', 'team');
+  g.append('circle').attr('r', NR).attr('class', 'idle');
+  g.append('text').text(d => d.label);
+  return g;
+});
+
+const ringRadius = (m, cellW, cellH) => {
+  const minDim = Math.min(cellW, cellH);
+  const gap = 2 * (NR + 4) + 8;
+  const rFit = m > 1 ? gap / (2 * Math.sin(Math.PI / m)) : 0;
+  return clamp(Math.max(rFit, minDim * SPREAD), Math.max(20, NR + 8), minDim * CAP);
+};
+
+// live state shared by layout, painting and clicks
+let groups = [];           // [{key, members, m, mask, colored, interactive, cx, cy, r}]
+let LINKS  = [];           // [{a, b, op}]
+const capText = {};        // key → caption string
+const groupOf = id => groups.find(g => g.members.includes(id));
+
+/* ── turn a scene into per-node targets, guides, captions ── */
+function computeLayout(scene) {
+  const W = innerWidth, H = innerHeight, phone = W < 620;
+  groups = []; LINKS = [];
+  nodes.forEach(nd => { nd._wasShown = nd.show; nd.show = false; nd.op = 1; nd.state = 'idle'; });
+  const out = scene.detail ? detailLayout(scene, W, H, phone) : gridLayout(scene, W, H, phone);
+  nodes.forEach(nd => { if (!nd.show) {
+    if (nd.id === 27) { nd.tx = W + 90; nd.ty = H * 0.72; }      // T28 waits off the right edge to fly in
+    else if (nd._wasShown) { nd.tx = nd.x; nd.ty = nd.y; }       // just hidden → fade out where it stands, don't move
+    else { nd.tx = W/2 + (nd.id % 6 - 3) * 9; nd.ty = H + 90; }  // long-hidden → parked offscreen (enters from bottom)
+  } });
+  return out;
+}
+
+function gridLayout(scene, W, H, phone) {
+  NR = clamp(Math.min(W, H) / 46, 7, 14);
+  const sizes = scene.sizes, nG = sizes.length;
+  const left = phone ? 18 : 44, right = W - (phone ? 18 : 44);
+  // byColumn: one column per division, that division's rings stacked — keeps each ring within its division
+  const cols = scene.byColumn ? scene.divisions
+    : clamp(Math.floor((right - left) / (phone ? 120 : 170)), 1, Math.min(scene.cols, nG));
+  const rows = scene.byColumn ? scene.divRows : Math.ceil(nG / cols);
+  const top = phone ? 64 : 84;
+  const bottom = H - (phone ? Math.min(340, H * 0.42) : 188);
+  const cellW = (right - left) / cols, cellH = (bottom - top) / rows;
+  const ids = d3.range(scene.extra ? 28 : 27);
+  const gm = sliceMembers(ids, sizes);
+  const guides = [], caps = [], divInfo = {};
+
+  gm.forEach((members, gi) => {
+    let row, colInRow, inRow;
+    if (scene.byColumn) { colInRow = scene.ringDiv[gi]; row = scene.ringRow[gi]; inRow = cols; }   // its division's column
+    else { row = Math.floor(gi / cols); inRow = Math.min(cols, nG - row * cols); colInRow = gi - row * cols; }
+    const rowPad = (cols - inRow) / 2 * cellW;
+    const cx = left + rowPad + (colInRow + 0.5) * cellW, cy = top + (row + 0.5) * cellH;
+    const m = members.length;
+    const slots = (scene.reserveLast && gi === gm.length - 1) ? m + 1 : m;   // reserve an empty slot for a newcomer
+    const r = ringRadius(slots, cellW, cellH), key = scene.key + ':' + gi;
+    guides.push({ key, cx, cy, r });
+    const mask = scene.colored ? maskFromMatch(matchingFor(scene.match, m)) : 0;
+    groups.push({ key, members, m, mask, colored:!!scene.colored, interactive:!!scene.interactive, cx, cy, r });
+    const isSpool = nG === 1 && m === 27;        // the big ring uses the optimized per-team headings
+    members.forEach((id, j) => {
+      const a = isSpool ? nodes[id].spoolAngle : -Math.PI/2 + j * 2 * Math.PI / slots, nd = nodes[id];
+      nd.show = true; nd.op = 1; nd.tx = cx + r * Math.cos(a); nd.ty = cy + r * Math.sin(a);
+    });
+    caps.push({ key, x: cx, y: cy + r + (phone ? 24 : 32), cls: '' });
+    if (scene.byColumn) {                        // track each division's extent for its grouping box
+      const d = scene.ringDiv[gi], inf = divInfo[d] || (divInfo[d] = { cx, t: Infinity, b: -Infinity, r: 0 });
+      inf.cx = cx; inf.r = Math.max(inf.r, r); inf.t = Math.min(inf.t, cy - r); inf.b = Math.max(inf.b, cy + r);
+    }
+  });
+  const boxes = [];
+  if (scene.byColumn) {                          // a labelled box around each division's rings
+    const pad = phone ? 12 : 20, labelH = 30;
+    Object.keys(divInfo).forEach(d => { const f = divInfo[d];
+      boxes.push({ key:'box'+d, x: f.cx - f.r - pad, y: f.t - labelH - pad/2, w: 2*(f.r + pad), h: (f.b - f.t) + labelH + pad*1.5,
+        label: 'Division ' + (+d + 1), lx: f.cx, ly: f.t - labelH + 4 });
+    });
+  }
+  if (nG === 1 && groups[0]) SPOOL = { cx: groups[0].cx, cy: groups[0].cy, r: groups[0].r };   // the spool
+  if (nG === 3 && sizes[0] === 9) DIVISIONS = groups.map(g => ({ cx: g.cx, cy: g.cy, r: g.r, members: g.members }));
+  return { guides, caps, divider: null, boxes };
+}
+
+/* ── the split-screen detail step: ring of four (real) vs the same four in a nine (clones) ── */
+// geometry of the detail split-screen — shared with the zoom camera so the ring of four is
+// exactly the same size in the "zoom" step as in this comparison step
+function detailGeom(W, H) {
+  const phone = W < 620;
+  const dNR = clamp(Math.min(W, H) / (phone ? 34 : 26), 11, 20);
+  let aC, bC, cellW, cellH, divider;
+  if (phone) {
+    const top = 66, regH = H - Math.min(330, H * 0.42) - top;
+    aC = [W/2, top + regH * 0.27]; bC = [W/2, top + regH * 0.73];
+    cellW = W - 40; cellH = regH * 0.46;
+    divider = { x1: 26, y1: top + regH * 0.5, x2: W - 26, y2: top + regH * 0.5 };
+  } else {
+    aC = [W * 0.27, H * 0.44]; bC = [W * 0.73, H * 0.44];
+    cellW = W * 0.40; cellH = H * 0.56;
+    divider = { x1: W/2, y1: H * 0.12, x2: W/2, y2: H * 0.80 };
+  }
+  const saved = NR; NR = dNR;                       // ringRadius reads the (detail) node radius
+  const rA = ringRadius(4, cellW, cellH), rB = ringRadius(9, cellW, cellH);
+  NR = saved;
+  return { aC, bC, rA, rB, divider, dNR };
+}
+
+function detailLayout(scene, W, H, phone) {
+  const geom = detailGeom(W, H);
+  NR = geom.dNR;
+  const stage = scene.stage;                       // 'setup' (T1 late) | 'late' (T1 arrives)
+  const guides = [], caps = [];
+  const { aC, bC, rA, rB, divider } = geom;
+
+  // LEFT — ring of four, real T1..T4. setup: T2-T3 play, T4 waits, T1 late. late: T1 joins T4, all play.
+  placeDetailRing([0,1,2,3], aC[0], aC[1], rA,
+    stage === 'late' ? ((1<<1)|(1<<3)) : (1<<1),
+    { lateSlot: 0, stage, m: 4, ghostFrom: 99, key: 'L' },
+    guides, caps, 'A ring of four', stage === 'late' ? '4 · all playing' : 'T2–T3 play · T4 waits');
+
+  // RIGHT — same four inside a nine (T5..T9 are strangers/ghosts). T1's neighbours pair off with others.
+  placeDetailRing(d3.range(9).map(i => 28 + i), bC[0], bC[1], rB,
+    (1<<1)|(1<<3)|(1<<5)|(1<<7),
+    { lateSlot: 0, stage, m: 9, ghostFrom: 4, key: 'R' },
+    guides, caps, 'The same four, in a nine', stage === 'late' ? 'T1 stranded · 1 waits' : 'the four, split among five strangers');
+
+  return { guides, caps, divider };
+}
+
+function placeDetailRing(ids, cx, cy, r, mask, opt, guides, caps, title, count) {
+  const m = opt.m;
+  guides.push({ key: opt.key, cx, cy, r });
+  const play = new Set();
+  for (let k = 0; k < m; k++) if (onBit(mask, k)) { play.add(k); play.add((k+1)%m); }
+
+  ids.forEach((id, j) => {
+    const nd = nodes[id], a = -Math.PI/2 + j * 2 * Math.PI / m, ghost = j >= opt.ghostFrom;
+    nd.show = true;
+    if (j === opt.lateSlot && opt.stage === 'setup') {        // hasn't arrived: parked outside, dim
+      nd.tx = cx + r * 1.78 * Math.cos(a); nd.ty = cy + r * 1.78 * Math.sin(a);
+      nd.state = 'idle'; nd.op = 0.38;
+    } else {                                                  // in the ring
+      nd.tx = cx + r * Math.cos(a); nd.ty = cy + r * Math.sin(a);
+      nd.state = play.has(j) ? 'play' : 'wait';
+      nd.op = (ghost && j !== opt.lateSlot) ? 0.4 : 1;
+    }
+  });
+  for (let k = 0; k < m; k++) if (onBit(mask, k)) {
+    const ghostLink = k >= opt.ghostFrom || (k+1)%m >= opt.ghostFrom;
+    LINKS.push({ a: ids[k], b: ids[(k+1)%m], op: ghostLink ? 0.4 : 0.9 });
+  }
+  caps.push({ key: opt.key + '-t', x: cx, y: cy - r - (m > 4 ? 34 : 30), cls: 'title' });
+  capText[opt.key + '-t'] = title;
+  caps.push({ key: opt.key + '-c', x: cx, y: cy + r + 34, cls: '' });
+  capText[opt.key + '-c'] = count;
+  if (opt.stage === 'setup') {
+    const a = -Math.PI/2 + opt.lateSlot * 2 * Math.PI / m;
+    caps.push({ key: opt.key + '-n', x: cx + r * 1.78 * Math.cos(a), y: cy + r * 1.78 * Math.sin(a) + 30, cls: 'note' });
+    capText[opt.key + '-n'] = 'T1 · running late';
+  }
+}
+
+/* ── derive node colours + links + captions from the groups' masks (grid scenes) ── */
+function deriveFromGroups() {
+  LINKS = [];
+  groups.forEach(g => {
+    if (!g.colored) { g.members.forEach(id => nodes[id].state = 'idle'); capText[g.key] = g.m + ' teams'; return; }
+    g.members.forEach(id => nodes[id].state = 'wait');
+    for (let k = 0; k < g.m; k++) if (onBit(g.mask, k)) {
+      const a = g.members[k], b = g.members[(k+1)%g.m];
+      nodes[a].state = 'play'; nodes[b].state = 'play'; LINKS.push({ a, b, op: 0.9 });
+    }
+    const waits = g.m - 2 * popcount(g.mask);
+    capText[g.key] = waits ? `${g.m} · ${waits} waiting` : `${g.m} · all playing`;
+  });
+}
+
+/* ── paint colours + links + caption text without moving anything (used after clicks) ── */
+function renderColors() {
+  nodeSel.select('circle').attr('class', d => d.show ? d.state : 'idle');
+  renderLinks(true);
+  gCaps.selectAll('text.gcap').text(d => capText[d.key] || '');
+}
+
+function renderLinks(animate) {
+  const key = d => Math.min(d.a, d.b) + '-' + Math.max(d.a, d.b);
+  gLinks.selectAll('line.pair').data(LINKS, key).join(
+    enter => enter.append('line').attr('class', 'pair').attr('opacity', 0)
+      .call(e => e.transition().delay(animate ? 140 : 0).duration(animate ? 450 : 0).attr('opacity', d => d.op ?? 0.9)),
+    upd => upd.call(u => u.transition().duration(300).attr('opacity', d => d.op ?? 0.9)),
+    exit => exit.call(e => e.transition().duration(animate ? 250 : 0).attr('opacity', 0).remove())
+  );
+  gLinks.selectAll('line.hit').data(LINKS, key).join(
+    enter => enter.append('line').attr('class', 'hit').on('click', (ev, d) => onLinkClick(d)),
+    upd => upd, exit => exit.remove()
+  );
+  const live = scenes[current].interactive;
+  gLinks.selectAll('line.hit').style('pointer-events', live ? 'stroke' : 'none').style('cursor', live ? 'pointer' : 'default');
+  // place every line immediately so new ones are correct even while the sim is at rest
+  gLinks.selectAll('line').attr('x1', d => nodes[d.a].x).attr('y1', d => nodes[d.a].y)
+    .attr('x2', d => nodes[d.b].x).attr('y2', d => nodes[d.b].y);
+}
+
+/* ───────────────── apply a scene ───────────────── */
+let current = 0;
+function applyScene(i) {
+  current = i;
+  const sc = scenes[i];
+  const { guides, caps, divider, boxes = [] } = computeLayout(sc);
+  if (!sc.detail) deriveFromGroups();
+  if (sc.arriveConnect && groups.length) {        // newcomer flies in orange, then its game connects → green
+    const g = groups[groups.length - 1];
+    g.mask &= ~(1 << (g.m - 2));                   // start the newcomer's game OFF (it + its partner stay orange)
+    deriveFromGroups();
+    setTimeout(() => {
+      if (current !== i) return;                   // still on this scene?
+      g.mask |= (1 << (g.m - 2));                  // connection made — both turn green
+      deriveFromGroups(); renderColors();
+    }, 1700);
+  }
+  if (sc.revealAfter != null) {                    // show just the regrouped circles, then let the games pair up
+    groups.forEach(g => g.colored = false);
+    deriveFromGroups();
+    setTimeout(() => { if (current !== i) return;
+      groups.forEach(g => { g.colored = true; g.mask = maskFromMatch(matchingFor(sc.match || 'best', g.m)); });
+      deriveFromGroups(); renderColors(); }, sc.revealAfter);
+  }
+  if (sc.reoptimize) {                             // break a game → orange → circles swap places → new game, one at a time
+    const at = (delay, fn) => setTimeout(() => { if (current === i) fn(); }, delay);
+    const swap = (a, b) => { const x = nodes[a].tx, y = nodes[a].ty;
+      nodes[a].tx = nodes[b].tx; nodes[a].ty = nodes[b].ty; nodes[b].tx = x; nodes[b].ty = y; };
+    groups.forEach(g => g.mask = maskFromMatch(matchingFor('worst', g.m)));   // (0,1)(3,4)(6,7): three stuck per ring
+    deriveFromGroups();
+    // re-pair #1 — stop the (3,4) game, swap T3 & T2 into place, then connect them
+    at(1000, () => { groups.forEach(g => g.mask &= ~(1 << 3)); deriveFromGroups(); renderColors(); });
+    at(1900, () => { groups.forEach(g => swap(g.members[2], g.members[3])); sim.alpha(0.9).alphaTarget(0).restart(); });
+    at(2900, () => { groups.forEach(g => g.mask |= (1 << 2)); deriveFromGroups(); renderColors(); });
+    // re-pair #2 — swap T5 & T4 into place, then connect them
+    at(3800, () => { groups.forEach(g => swap(g.members[4], g.members[5])); sim.alpha(0.9).alphaTarget(0).restart(); });
+    at(4800, () => { groups.forEach(g => g.mask |= (1 << 4)); deriveFromGroups(); renderColors(); });
+  }
+  const live = !!sc.interactive;
+
+  nodeSel.transition().duration(550).style('opacity', d => d.show ? (d.op ?? 1) : 0);
+  nodeSel.select('circle').attr('class', d => d.show ? d.state : 'idle')
+    .transition().duration(400).attr('r', NR);
+  nodeSel.select('text').attr('font-size', Math.max(8, NR * 0.92));
+  nodeSel.style('cursor', d => live && groupOf(d.id) && groupOf(d.id).colored ? 'pointer' : 'default');
+
+  // each team rides off its source circle and onto its target circle (same belt routine both ways)
+  const unwind = prevScene === 0 && i === 1;     // 27 → three nines
+  const wind   = prevScene === 1 && i === 0;     // reverse
+  spoolActive = unwind || wind;
+  nodes.forEach(d => {
+    d.plan = null;
+    if (!spoolActive || !d.show || d.id >= 27) return;
+    if (unwind) {                                // ride OFF the spool, ONTO the team's division
+      const g = groups.find(gr => gr.members.includes(d.id));
+      d.plan = spoolPlan(SPOOL, d.spoolAngle, g, Math.atan2(d.ty - g.cy, d.tx - g.cx));
+    } else {                                     // ride OFF the division, ONTO the spool
+      const src = DIVISIONS.find(div => div.members.includes(d.id));
+      if (src) d.plan = spoolPlan(src, Math.atan2(d.y - src.cy, d.x - src.cx), SPOOL, d.spoolAngle);
+    }
+  });
+  tickClock = 0;
+  prevScene = i;
+
+  // collision OFF during a spool transition so circles ride the belt cleanly; ON otherwise
+  sim.force('collide').radius(d => (spoolActive || sc.reoptimize || !d.show) ? 0 : NR + 4);   // off while circles swap
+
+  gBoxes.selectAll('g.divbox-g').data(boxes, d => d.key).join(
+    enter => { const g = enter.append('g').attr('class', 'divbox-g');     // CSS fades opacity, not d3 (no interrupts)
+      g.append('rect').attr('class', 'divbox').attr('rx', 16);
+      g.append('text').attr('class', 'gcap divlabel');
+      return g; },
+    upd => upd,
+    exit => exit.remove()
+  ).each(function (d) { const g = d3.select(this);
+    g.select('rect').attr('x', d.x).attr('y', d.y).attr('width', d.w).attr('height', d.h);
+    g.select('text').attr('x', d.lx).attr('y', d.ly).text(d.label);
+  });
+
+  gGuides.selectAll('circle.guide').data(guides, d => d.key).join(
+    enter => enter.append('circle').attr('class', 'guide')
+      .attr('cx', d => d.cx).attr('cy', d => d.cy).attr('r', d => d.r).attr('opacity', 0)
+      .call(e => e.transition().duration(550).attr('opacity', 0.9)),
+    upd => upd.call(u => u.transition().duration(500).attr('cx', d => d.cx).attr('cy', d => d.cy).attr('r', d => d.r)),
+    exit => exit.call(e => e.transition().duration(350).attr('opacity', 0).remove())
+  );
+
+  const dv = d3.select('.divider');
+  if (divider) dv.attr('x1', divider.x1).attr('y1', divider.y1).attr('x2', divider.x2).attr('y2', divider.y2)
+                 .interrupt().transition().duration(550).attr('opacity', 0.8);
+  else dv.interrupt().transition().duration(350).attr('opacity', 0);
+
+  // camera: zoom into the focused group, or pull back to identity (zoom out) everywhere else
+  const W = innerWidth, H = innerHeight;
+  let camT = 'translate(0,0) scale(1)';
+  if (sc.focus != null && groups[sc.focus]) {
+    const g = groups[sc.focus], geom = detailGeom(W, H);
+    const k = geom.rA / g.r;                        // zoom so the ring is the SAME size as the next (detail) step
+    camT = `translate(${W/2 - k*g.cx},${geom.aC[1] - k*g.cy}) scale(${k})`;
+  }
+  cam.interrupt().transition().duration(1050).ease(d3.easeCubicInOut).attr('transform', camT);
+
+  gCaps.selectAll('text.gcap').data(caps, d => d.key).join(
+    enter => enter.append('text').attr('class', d => 'gcap ' + (d.cls || ''))
+      .attr('x', d => d.x).attr('y', d => d.y).attr('opacity', 0).text(d => capText[d.key] || '')
+      .call(e => e.transition().duration(550).attr('opacity', 1)),
+    upd => upd.call(u => { u.attr('class', d => 'gcap ' + (d.cls || '')).text(d => capText[d.key] || '')
+                            .transition().duration(450).attr('x', d => d.x).attr('y', d => d.y); }),
+    exit => exit.call(e => e.transition().duration(300).attr('opacity', 0).remove())
+  );
+
+  renderLinks(true);
+  sim.alpha(0.95).alphaTarget(spoolActive ? 0.12 : 0).restart();   // sustain energy through the slow belt ride
+  d3.selectAll('.dots button').classed('on', (d, k) => k === i);
+}
+
+// custom pull-to-target force: reads each node's live target, and holds a node still until its
+// per-node `delay` (in ticks) has elapsed — that's what staggers the circles one after another
+/* ── belt/spool geometry — shared by both transition directions (DRY) ── */
+const onArc   = (c, a) => [c.cx + c.r * Math.cos(a), c.cy + c.r * Math.sin(a)];
+const ccwDist = (from, to) => { let d = (from - to) % (2 * Math.PI); return d < 0 ? d + 2 * Math.PI : d; }; // CCW = decreasing angle
+const lerp2   = (p, q, t) => [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
+// external-tangent angle on circle a toward circle b (CCW-leading side); null if ~concentric
+function tangentAngle(a, b) {
+  const dx = b.cx - a.cx, dy = b.cy - a.cy, dist = Math.hypot(dx, dy);
+  if (dist < Math.max(a.r, b.r) * 0.25) return null;
+  return Math.atan2(dy, dx) + Math.acos(clamp((a.r - b.r) / dist, -1, 1));
+}
+// ride OFF `src` at a tangent → straight hop → ride ONTO `tgt` to its slot. One routine, used both ways.
+function spoolPlan(src, srcAngle, tgt, tgtAngle) {
+  const legs = [];
+  const arc  = (c, from, to) => { const span = ccwDist(from, to); legs.push({ arc: c, from, span, dur: span / SPIN_OMEGA }); };
+  const line = (p, q) => legs.push({ p, q, dur: FLIGHT });
+  const psi = tangentAngle(src, tgt);                            // tangent touches both circles at the same heading
+  if (psi == null) {                                             // concentric (centre division) → smooth spiral in/out
+    const sweep = ccwDist(srcAngle, tgtAngle);
+    legs.push({ spiral: true, fromC: src, fromR: src.r, fromA: srcAngle, toC: tgt, toR: tgt.r, toA: tgtAngle,
+                sweep, dur: Math.max(sweep, Math.PI) / SPIN_OMEGA });
+  } else { arc(src, srcAngle, psi); line(onArc(src, psi), onArc(tgt, psi)); arc(tgt, psi, tgtAngle); }
+  let t0 = 0; legs.forEach(l => { l.t0 = t0; t0 += l.dur; });
+  return legs;
+}
+// position along a plan at elapsed tick `t` (stays at the slot once finished)
+function spoolPoint(legs, t) {
+  const last = legs[legs.length - 1];
+  for (const l of legs) if (t < l.t0 + l.dur || l === last) {
+    const p = clamp((t - l.t0) / l.dur, 0, 1);
+    if (l.arc) return onArc(l.arc, l.from - l.span * p);
+    if (l.spiral) {                                               // interpolate centre, radius and angle together
+      const cx = l.fromC.cx + (l.toC.cx - l.fromC.cx) * p, cy = l.fromC.cy + (l.toC.cy - l.fromC.cy) * p;
+      const R = l.fromR + (l.toR - l.fromR) * p, a = l.fromA - l.sweep * p;
+      return [cx + R * Math.cos(a), cy + R * Math.sin(a)];
+    }
+    return lerp2(l.p, l.q, p);
+  }
+}
+
+// pure geometry of a grid scene (same math as gridLayout) so the spool can be optimized up front
+function layoutGeom(sizes, sceneCols) {
+  const W = innerWidth, H = innerHeight, phone = W < 620, nG = sizes.length;
+  const left = phone ? 18 : 44, right = W - (phone ? 18 : 44);
+  const cols = clamp(Math.floor((right - left) / (phone ? 120 : 170)), 1, Math.min(sceneCols, nG));
+  const rows = Math.ceil(nG / cols);
+  const top = phone ? 64 : 84, bottom = H - (phone ? Math.min(340, H * 0.42) : 188);
+  const cellW = (right - left) / cols, cellH = (bottom - top) / rows;
+  const saved = NR; NR = clamp(Math.min(W, H) / 46, 7, 14);
+  const out = sizes.map((m, gi) => {
+    const row = Math.floor(gi / cols), inRow = Math.min(cols, nG - row * cols), colInRow = gi - row * cols;
+    const rowPad = (cols - inRow) / 2 * cellW;
+    return { cx: left + rowPad + (colInRow + 0.5) * cellW, cy: top + (row + 0.5) * cellH, r: ringRadius(m, cellW, cellH) };
+  });
+  NR = saved;
+  return out;
+}
+
+// optimise placement on the spool: each team sits near the heading it leaves by, so every belt is short.
+// side divisions → CCW-ahead of their tangent; centre (concentric) → facing its own slot (spirals straight in).
+function optimizeSpool() {
+  const spool = layoutGeom([27], 1)[0], divs = layoutGeom([9, 9, 9], 3);
+  SPOOL = spool;
+  const TAU = 2 * Math.PI, step = TAU / 27, norm = a => (a % TAU + TAU) % TAU;
+  // side divisions sit in a tight arc starting at their tangent and running CCW-ahead → each rides 0–107°
+  const occupied = [];
+  [0, 2].forEach(p => {
+    const psi = tangentAngle(spool, divs[p]);
+    for (let j = 0; j < 9; j++) { const a = norm(psi + j * step); nodes[p * 9 + j].spoolAngle = a; occupied.push(a); }
+  });
+  // centre division (spirals in) fills the gaps the side arcs leave
+  occupied.sort((a, b) => a - b);
+  const gaps = [];
+  for (let i = 0; i < occupied.length; i++) {
+    const len = norm(occupied[(i + 1) % occupied.length] - occupied[i]);
+    if (len > step * 1.5) gaps.push({ start: occupied[i], len });
+  }
+  const total = gaps.reduce((s, g) => s + g.len, 0);
+  const mids = d3.range(9).map(j => 9 + j);
+  let placed = 0;
+  gaps.forEach((g, gi) => {
+    const n = gi === gaps.length - 1 ? mids.length - placed : Math.round(9 * g.len / total);
+    for (let k = 0; k < n && placed < mids.length; k++) nodes[mids[placed++]].spoolAngle = norm(g.start + g.len * (k + 1) / (n + 1));
+  });
+}
+
+function targetForce() {
+  let ns;
+  const add = (d, tx, ty, k, a) => { d.vx += (tx - d.x) * k * a; d.vy += (ty - d.y) * k * a; };
+  const f = alpha => {
+    for (const d of ns) {
+      if (!d.show) continue;
+      if (spoolActive && d.plan) { const pt = spoolPoint(d.plan, tickClock); add(d, pt[0], pt[1], 0.5, alpha); }
+      else add(d, d.tx, d.ty, 0.035, alpha);
+    }
+  };
+  f.initialize = _ => ns = _;
+  return f;
+}
+
+// physics: gentle pull toward each slot + collision; slow, graceful glide
+const sim = d3.forceSimulation(nodes)
+  .force('target', targetForce())
+  .force('collide', d3.forceCollide().radius(d => d.show ? NR + 4 : 0).strength(0.9))
+  .velocityDecay(0.45).alphaDecay(0.006)
+  .on('tick', () => {
+    tickClock++;
+    nodeSel.attr('transform', d => `translate(${d.x},${d.y})`);
+    gLinks.selectAll('line')
+      .attr('x1', d => nodes[d.a].x).attr('y1', d => nodes[d.a].y)
+      .attr('x2', d => nodes[d.b].x).attr('y2', d => nodes[d.b].y);
+  });
+
+/* ── interactivity: click a team to re-pair, click a game to break it (only on flagged scenes) ── */
+nodeSel.on('click', (ev, d) => {
+  if (!scenes[current].interactive) return;
+  const g = groupOf(d.id);
+  if (!g || !g.colored || !g.interactive) return;
+  cycleTeam(g, g.members.indexOf(d.id));
+  deriveFromGroups(); renderColors();
+});
+function onLinkClick(d) {
+  if (!scenes[current].interactive) return;
+  const g = groups.find(g => g.interactive && g.members.includes(d.a) && g.members.includes(d.b));
+  if (!g) return;
+  const ia = g.members.indexOf(d.a), ib = g.members.indexOf(d.b);
+  g.mask &= ~(1 << (ib === (ia + 1) % g.m ? ia : ib));     // turn that edge off
+  deriveFromGroups(); renderColors();
+}
+
+/* ───────────────── build the scrolling narrative + wiring ───────────────── */
+const main = d3.select('main'), dots = d3.select('.dots');
+scenes.forEach((sc, i) => {
+  const sec = main.append('section').attr('class', 'step').attr('data-i', i);
+  const card = sec.append('div').attr('class', 'card');
+  card.append('div').attr('class', 'kicker').text(sc.kicker);
+  card.append('h2').text(sc.title);
+  card.append('p').text(sc.body);
+  if (sc.stat) {
+    const s = card.append('div').attr('class', 'stat ' + sc.stat.tone);
+    s.append('span').attr('class', 'num').text(sc.stat.n);
+    s.append('span').attr('class', 'unit').text(sc.stat.text);
+  }
+  if (sc.interactive) card.append('div').attr('class', 'tryit').text('✦ tap the circles or a green game to re-pair');
+  if (i === 0) card.append('div').attr('class', 'hint').text('scroll ↓   ·   or press ↓ / ↑');
+  dots.append('button').on('click', () => go(i));
+});
+
+const sections = [...document.querySelectorAll('.step')];
+
+// the section crossing the viewport centre is the active scene
+const io = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (!e.isIntersecting) return;
+    const i = +e.target.dataset.i;
+    sections.forEach(s => s.classList.toggle('active', s === e.target));
+    if (i !== current) applyScene(i);
+  });
+}, { rootMargin: '-45% 0px -45% 0px', threshold: 0 });
+sections.forEach(s => io.observe(s));
+
+function go(i) { i = clamp(i, 0, scenes.length - 1); sections[i].scrollIntoView({ behavior: 'smooth' }); }
+addEventListener('keydown', e => {
+  if (['ArrowDown', 'PageDown', ' '].includes(e.key)) { e.preventDefault(); go(current + 1); }
+  else if (['ArrowUp', 'PageUp'].includes(e.key))     { e.preventDefault(); go(current - 1); }
+  else if (e.key === 'Home') { e.preventDefault(); go(0); }
+  else if (e.key === 'End')  { e.preventDefault(); go(scenes.length - 1); }
+});
+
+const progress = document.getElementById('progress');
+addEventListener('scroll', () => {
+  const max = document.documentElement.scrollHeight - innerHeight;
+  progress.style.width = (max > 0 ? (scrollY / max) * 100 : 0) + '%';
+}, { passive: true });
+
+let rt;
+addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { optimizeSpool(); applyScene(current); }, 120); });
+
+// start: scatter near centre, then settle into scene 0
+nodes.forEach(nd => { nd.x = innerWidth/2 + (Math.random()-0.5)*200; nd.y = innerHeight/2 + (Math.random()-0.5)*200; });
+optimizeSpool();
+sections[0].classList.add('active');
+applyScene(0);
+</script>
+</body>
+</html>
