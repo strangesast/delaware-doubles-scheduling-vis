@@ -1,6 +1,6 @@
 /* Service worker for the Delaware Doubles pitch — offline-first PWA.
    Bump CACHE to ship updated assets. */
-const CACHE = 'doubles-pitch-v1';
+const CACHE = 'doubles-pitch-v2';
 
 // Everything pitch.html needs to run with no network, paths relative to this
 // worker's scope (works under the GitHub Pages project subpath).

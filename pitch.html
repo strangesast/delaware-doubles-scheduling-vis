@@ -29,7 +29,9 @@
   /* fixed full-screen physics graphic, behind the scrolling text */
   #graphic { position: fixed; inset: 0; z-index: 0;
              background: radial-gradient(120% 100% at 70% 10%, #16233b 0%, #0b1220 60%); }
-  #graphic svg { width: 100%; height: 100%; display: block; }
+  #graphic svg { width: 100%; height: 100%; display: block;
+                 will-change: transform; }              /* device-tilt parallax composites on this layer */
+  .fx circle { pointer-events: none; }                  /* water-droplet splashes — purely decorative */
 
   /* ring guides, pairing links, team circles — strokes & label sizes scale with --sw (node radius / 14) */
   #graphic svg { --sw: 1; }
@@ -207,6 +209,7 @@
       <g class="links"></g>
       <g class="nodes"></g>
       <g class="caps"></g>
+      <g class="fx"></g>
     </g>
   </svg>
 </div>
@@ -764,7 +767,48 @@ const gGuides = svg.select('g.guides');
 const gLinks  = svg.select('g.links');
 const gNodes  = svg.select('g.nodes');
 const gCaps   = svg.select('g.caps');
+const gFx     = svg.select('g.fx');
 const cam     = svg.select('g.cam').attr('transform', 'translate(0,0) scale(1)');
+
+/* ── feedback when a game (match) forms: a tiny water-droplet splash + a subtle buzz ──
+   Every match — tapped or scene-driven — ends up as a non-"want" edge in LINKS, so we
+   diff the edge set each paint and react to the ones that just appeared. */
+const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+let prevEdgeKeys  = new Set();   // game-edges shown on the previous paint
+let userAction    = false;       // a tap is in flight — only those buzz, autoplay stays silent
+let splashEnabled = false;       // armed a beat after each scene settles, so entry layouts don't splash
+
+const DROPLET = ['#34d399', '#86efac', '#6ee7b7'];   // the pairing-link greens
+function splash(node) {                              // a few droplets flick outward off a circle
+  if (reduceMotion()) return;
+  const drops = 4 + (Math.random() * 3 | 0);
+  for (let i = 0; i < drops; i++) {
+    const ang = Math.random() * Math.PI * 2, dist = NR * (1.1 + Math.random() * 1.6);
+    const r0 = NR * (0.16 + Math.random() * 0.12);
+    gFx.append('circle').attr('cx', node.x).attr('cy', node.y).attr('r', r0)
+      .attr('fill', DROPLET[i % DROPLET.length]).attr('opacity', 0.75)
+      .transition().duration(380 + Math.random() * 260).ease(d3.easeCubicOut)
+        .attr('cx', node.x + Math.cos(ang) * dist)
+        .attr('cy', node.y + Math.sin(ang) * dist - NR * 0.25)   // a touch of lift, like a flick
+        .attr('r', r0 * 0.25).attr('opacity', 0)
+        .remove();
+  }
+}
+function buzz() { if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) {} } }
+
+function fxFromLinks() {                              // called at the tail of every renderLinks
+  const cur = new Set();
+  LINKS.forEach(d => { if (!d.want) cur.add(Math.min(d.a, d.b) + '-' + Math.max(d.a, d.b)); });
+  const fresh = [];
+  cur.forEach(k => { if (!prevEdgeKeys.has(k)) fresh.push(k); });
+  prevEdgeKeys = cur;
+  // skip bulk layouts (a whole schedule snapping in) — only individual matches splash
+  if (splashEnabled && fresh.length && fresh.length <= 4) {
+    fresh.forEach(k => { const [a, b] = k.split('-').map(Number); splash(nodes[a]); splash(nodes[b]); });
+    if (userAction) buzz();
+  }
+  userAction = false;
+}
 
 const nodeSel = gNodes.selectAll('g.team').data(nodes).join(enter => {
   const g = enter.append('g').attr('class', 'team');
@@ -1010,12 +1054,16 @@ function renderLinks(animate) {
   // place every line immediately so new ones are correct even while the sim is at rest
   gLinks.selectAll('line').attr('x1', d => nodes[d.a].x).attr('y1', d => nodes[d.a].y)
     .attr('x2', d => nodes[d.b].x).attr('y2', d => nodes[d.b].y);
+  fxFromLinks();                                     // splash/buzz any game-edge that just formed
 }
 
 /* ───────────────── apply a scene ───────────────── */
 let current = 0;
+let armFx;
 function applyScene(i) {
   const sc = scenes[i], fromSc = scenes[prevScene];
+  splashEnabled = false;                             // hush splashes while the scene lays itself out
+  clearTimeout(armFx); armFx = setTimeout(() => { splashEnabled = true; }, 650);
   // split screen ↔ four-ring grid is a pure camera move: every ring is laid out at its final spot up
   // front and only the camera travels, framed so the ring of four renders exactly where it was at the cut.
   // Everything that leaves is remapped into the new frame so it fades in place while riding the move.
@@ -1465,6 +1513,7 @@ nodeSel.on('click', (ev, d) => {
   const g = groupOf(d.id);
   if (!g || !g.colored || !g.interactive) return;
   cycleTeam(g, g.members.indexOf(d.id));
+  userAction = true;                                 // a new game from this tap should buzz
   refresh();
   sim.alpha(0.4).alphaTarget(0).restart();         // glide the re-paired in and the newly stranded out
 });
@@ -1538,6 +1587,40 @@ precomputeAll();                                   // kick off the worker in the
 sections[0].classList.add('active'); activeSec = sections[0];
 nodeSel.style('opacity', 0);                       // everything enters through its scene (arrivals spawn one by one)
 applyScene(0);
+
+/* ── device tilt → a subtle parallax sway of the whole graphic (not the chrome) ──
+   Translating the <svg> shifts the circles & links against the fixed gradient behind them,
+   so it reads as gentle depth. Clamped to a few px and eased, never dramatic. */
+(function deviceTilt() {
+  if (reduceMotion()) return;
+  const svgEl = svg.node();
+  const MAX = 12;                                   // px — the most the field ever drifts
+  let baseG = null, baseB = null, tx = 0, ty = 0, cx = 0, cy = 0, running = false;
+
+  function onTilt(e) {
+    if (e.gamma == null && e.beta == null) return;
+    if (baseG == null) { baseG = e.gamma; baseB = e.beta; }   // first reading = however you're holding it
+    tx = clamp((e.gamma - baseG) / 22, -1, 1) * MAX;          // roll  → left/right
+    ty = clamp((e.beta  - baseB) / 22, -1, 1) * MAX;          // pitch → up/down
+    if (!running) { running = true; requestAnimationFrame(loop); }
+  }
+  function loop() {                                  // ease toward the target so the sway is smooth
+    cx += (tx - cx) * 0.08; cy += (ty - cy) * 0.08;
+    svgEl.style.transform = `translate3d(${cx.toFixed(2)}px, ${cy.toFixed(2)}px, 0)`;
+    requestAnimationFrame(loop);
+  }
+
+  const DO = window.DeviceOrientationEvent;
+  if (!DO) return;
+  if (typeof DO.requestPermission === 'function') {           // iOS 13+ needs a gesture to grant
+    const ask = () => DO.requestPermission()
+      .then(s => { if (s === 'granted') addEventListener('deviceorientation', onTilt, true); })
+      .catch(() => {});
+    addEventListener('pointerdown', ask, { once: true });
+  } else {
+    addEventListener('deviceorientation', onTilt, true);
+  }
+})();
 </script>
 
 <script>
