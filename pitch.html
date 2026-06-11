@@ -129,6 +129,14 @@
           animation: bob 1.8s ease-in-out infinite; }
   @keyframes bob { 0%,100%{ transform: translateY(0); } 50%{ transform: translateY(4px); } }
 
+  /* iOS-only opt-in to motion access (shown by script when the permission API exists) */
+  #tiltbtn { position: fixed; z-index: 5; display: none; left: 50%; transform: translateX(-50%);
+             top: calc(16px + env(safe-area-inset-top)); align-items: center; gap: 7px; cursor: pointer;
+             background: rgba(15,23,42,0.82); border: 1px solid rgba(148,163,184,0.3); border-radius: 999px;
+             color: #cbd5e1; font: 600 12.5px -apple-system, "Segoe UI", sans-serif; padding: 9px 16px;
+             -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); -webkit-tap-highlight-color: transparent; }
+  #tiltbtn i { font-style: normal; color: #60a5fa; font-size: 14px; }
+
   /* chrome: title, progress, nav dots */
   .brand { position: fixed; top: 20px; left: 5vw; z-index: 3; color: #e2e8f0;
            font-size: 13px; font-weight: 700; letter-spacing: .04em; opacity: .85; pointer-events: none; }
@@ -195,6 +203,7 @@
 <div class="brand">Delaware Doubles · <span>scheduling</span></div>
 <div id="hud"></div>
 <div id="tapnote"><i>✦</i> tap a circle or a game to change pairings</div>
+<button id="tiltbtn"><i>↕</i> Enable tilt</button>
 <div id="graphic">
   <svg>
     <defs>
@@ -1615,12 +1624,14 @@ applyScene(0);
 
   const DO = window.DeviceOrientationEvent, DM = window.DeviceMotionEvent;
   if (!DO) return;
-  if (typeof DO.requestPermission === 'function') {           // iOS 13+: must ask from a user gesture
-    const ask = () => {                                       // retried on each gesture until it sticks
-      DO.requestPermission().then(s => { if (s === 'granted') listen(); }).catch(() => {});
+  if (typeof DO.requestPermission === 'function') {           // iOS: needs a deliberate tap on a real control
+    const btn = document.getElementById('tiltbtn');           // (the implicit-gesture path never prompts in a home-screen app)
+    btn.style.display = 'inline-flex';
+    btn.addEventListener('click', () => {
+      btn.style.display = 'none';
+      Promise.resolve(DO.requestPermission()).then(s => { if (s === 'granted') listen(); }).catch(() => {});
       if (DM && typeof DM.requestPermission === 'function') DM.requestPermission().catch(() => {});
-    };
-    ['pointerdown', 'touchend', 'click'].forEach(ev => addEventListener(ev, ask, { passive: true }));
+    });
   } else {
     listen();                                                 // Android / desktop sensors: no permission needed
   }
