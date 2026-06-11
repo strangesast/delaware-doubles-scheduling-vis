@@ -124,6 +124,11 @@
   #hud small { display: block; margin-top: 4px; color: #94a3b8; font-size: 11px; font-weight: 600; }
   #hud small i { font-style: normal; }
   #hud small i.g { color: #34d399; } #hud small i.w { color: #94a3b8; letter-spacing: 1px; }
+  /* interactive scenes: a quiet pill by the graphic — circles & links respond to taps */
+  #tapnote { position: fixed; top: 56px; right: 22px; z-index: 3; display: none; pointer-events: none;
+             background: rgba(15,23,42,0.72); border: 1px solid rgba(148,163,184,0.25); border-radius: 12px;
+             color: #cbd5e1; font-size: 12px; font-weight: 600; padding: 7px 12px; }
+  #tapnote i { font-style: normal; color: #60a5fa; }
   #progress { position: fixed; top: 0; left: 0; height: 3px; width: 0;
               background: linear-gradient(90deg,#3b82f6,#22c55e); z-index: 4; transition: width .15s; }
   .dots { position: fixed; right: 22px; top: 50%; transform: translateY(-50%);
@@ -143,6 +148,7 @@
     .tryit { margin-top: 6px; font-size: 11px; }
     .hint  { margin-top: 7px; font-size: 11.5px; }
     .dots { display: none; }
+    #tapnote { display: none !important; }             /* the card's ✦ hint covers it on phones */
   }
   @media (max-height: 560px) {                         /* short / landscape phone: card as a left-hand panel */
     .card { left: 2.5vw; margin-left: 0; right: auto; bottom: auto; top: 6vh; width: min(330px, 40vw);
@@ -158,6 +164,7 @@
 <div id="progress"></div>
 <div class="brand">Delaware Doubles · <span>scheduling</span></div>
 <div id="hud"></div>
+<div id="tapnote"><i>✦</i> tap a circle or a game to change pairings</div>
 <div id="graphic">
   <svg>
     <defs>
@@ -525,9 +532,23 @@ const scenes = [
       });
     } },
 
-  { key:'split', sizes:FIX, cols:3, colored:false, ...SPLITGRID,
+  { key:'split', sizes:FIX, cols:3, colored:false, live:true, ...SPLITGRID,
     kicker:'Fix · step 2', title:'Split into pools of four',
-    body:'Break each division into independent pools of four — plus the one leftover pool — each kept within its division. Schedules interlock: your first opponent plays you second, and your second plays you first.' },
+    body:'Break each division into independent pools of four — plus the one leftover pool — each kept within its division. Schedules interlock: every team plays one of its opponents first, then pairs of teams swap so everyone plays the other.',
+    run: ({ at }) => {                             // the night unfolds: round one connects game by game,
+      const step = fn => { fn(); refresh(); sim.alpha(0.5).alphaTarget(0).restart(); };   // then pairs swap opponents
+      const round = par => groups.flatMap(g => {   // par 0 → edges (0,2,…), par 1 → (1,3,…): the two interlocked pairings
+        const ks = []; for (let k = par; k + 1 < g.m + par; k += 2) ks.push([g, k]); return ks;
+      });
+      const first = round(0), second = round(1);
+      at(900, () => step(() => groups.forEach(g => { g.colored = true; g.mask = 0; })));  // everyone shows up, unpaired
+      let t = 1400;
+      first.forEach(([g, k]) => { at(t, () => step(() => g.mask |= 1 << k)); t += 140; });    // round one, one game at a time
+      t += 1400;                                                                              // let the first round breathe
+      first.forEach(([g, k]) => { at(t, () => step(() => g.mask &= ~(1 << k))); t += 90; });  // round over — games wind down
+      t += 600;
+      second.forEach(([g, k]) => { at(t, () => step(() => g.mask |= 1 << k)); t += 140; });   // swap: everyone's other opponent
+    } },
 
   { key:'zoom', sizes:FIX, cols:3, colored:true, match:'best', interactive:true, focus:0, ...SPLITGRID,
     kicker:'Look closer', title:'Zoom in on one pool of four',
@@ -978,6 +999,7 @@ function applyScene(i) {
   SCENE_CARD = CARDS_H[i] || CARD_H;                 // this scene's stage avoids this scene's card
   const { at } = sceneTimer();                       // this scene's timer scope; cancels all earlier ones
   setHud(null);                                      // scenes that use the HUD repopulate it from their run hook
+  document.getElementById('tapnote').style.display = sc.interactive ? 'block' : 'none';
   sim.force('attract', null);                        // scene-scoped link attraction — a run hook may reinstall it
   // roster-list scenes use the chip overlay; entering divisions from the flat list is staged —
   // the list first opens gaps at the division boundaries, then rearranges into columns
@@ -1127,8 +1149,16 @@ function applyScene(i) {
   let camT = 'translate(0,0) scale(1)';
   if (sc.focus != null && groups[sc.focus]) {
     const g = groups[sc.focus], geom = detailGeom(W, H);
-    const k = geom.rA / g.r;                        // zoom so the ring is the SAME size as the next (detail) step
-    camT = `translate(${W/2 - k*g.cx},${geom.aC[1] - k*g.cy}) scale(${k})`;
+    let k = geom.rA / g.r;                          // zoom so the ring is the SAME size as the next (detail) step
+    let cy = geom.aC[1];
+    if (geom.portrait) {                            // portrait phone: the detail framing sits high and small —
+      const st = stage(W, H);                       // zoom in harder and centre the four in the stage instead
+      const sw = st.right - st.left, sh = st.bottom - st.top;
+      k = Math.min(sw, sh) * 0.30 / g.r;
+      const above = k * (g.r + NR), below = k * (g.r + 32);   // rim + node above centre, count caption below
+      cy = st.top + (sh - above - below) / 2 + above;         // the whole block sits centred in the stage
+    }
+    camT = `translate(${W/2 - k*g.cx},${cy - k*g.cy}) scale(${k})`;
   }
   if (camSnap) cam.interrupt().attr('transform', camSnap);   // jump-cut to the matching framing, then travel
   cam.interrupt().transition().duration(1050).ease(d3.easeCubicInOut).attr('transform', camT);
