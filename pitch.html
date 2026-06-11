@@ -785,7 +785,7 @@ const cam     = svg.select('g.cam').attr('transform', 'translate(0,0) scale(1)')
 const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 let prevEdgeKeys   = new Set();  // game-edges shown on the previous paint
 let userAction     = false;      // a tap is in flight — only those buzz, autoplay stays silent
-let sceneBaselined = false;      // a scene's first paint is the baseline; matches forming after it splash
+let firstFxPaint   = true;       // only the app's opening paint is silent; every game new after it ripples in
 
 const RIPPLE = ['#34d399', '#86efac', '#6ee7b7'];   // the pairing-link greens
 function splash(node) {                              // concentric rings ripple outward from a circle as it connects
@@ -804,19 +804,19 @@ function splash(node) {                              // concentric rings ripple 
 }
 function buzz() { if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) {} } }
 
-function fxFromLinks() {                              // called at the tail of every renderLinks
+function fxFromLinks(revealDelay = 0) {               // called at the tail of every renderLinks
   const cur = new Set();
   LINKS.forEach(d => { if (!d.want) cur.add(Math.min(d.a, d.b) + '-' + Math.max(d.a, d.b)); });
   const fresh = [];
-  cur.forEach(k => { if (!prevEdgeKeys.has(k)) fresh.push(k); });
+  cur.forEach(k => { if (!prevEdgeKeys.has(k)) fresh.push(k); });   // games not on screen a moment ago
   prevEdgeKeys = cur;
-  if (!sceneBaselined) { sceneBaselined = true; userAction = false; return; }   // games already there on arrival
-  if (fresh.length && !reduceMotion()) {             // every game that forms after that splashes…
+  if (firstFxPaint) { firstFxPaint = false; userAction = false; return; }   // opening schedule: arrives, doesn't form
+  if (fresh.length && !reduceMotion()) {             // tap, scripted reveal, or scene change — all ripple the new ones…
     const sceneAt = current;
-    fresh.forEach((k, i) => setTimeout(() => {       // …cascaded, so a whole schedule ripples in, never bursts
-      if (current !== sceneAt) return;
+    fresh.forEach((k, i) => setTimeout(() => {       // …cascaded, and (on a scene change) held until the circles have
+      if (current !== sceneAt) return;               //    ridden the belt to their resting spots so rings land on them
       const [a, b] = k.split('-').map(Number); splash(nodes[a]); splash(nodes[b]);
-    }, i * 55));
+    }, revealDelay + i * 55));
     if (userAction) buzz();
   }
   userAction = false;
@@ -1049,7 +1049,7 @@ function renderColors() {
   gCaps.selectAll('text.gcap').text(d => capText[d.key] || '');
 }
 
-function renderLinks(animate) {
+function renderLinks(animate, fxDelay = 0) {
   const key = d => Math.min(d.a, d.b) + '-' + Math.max(d.a, d.b);
   gLinks.selectAll('line.pair').data(LINKS, key).join(
     enter => enter.append('line').attr('class', d => d.want ? 'pair want' : 'pair').attr('opacity', 0)
@@ -1067,14 +1067,13 @@ function renderLinks(animate) {
   // place every line immediately so new ones are correct even while the sim is at rest
   gLinks.selectAll('line').attr('x1', d => nodes[d.a].x).attr('y1', d => nodes[d.a].y)
     .attr('x2', d => nodes[d.b].x).attr('y2', d => nodes[d.b].y);
-  fxFromLinks();                                     // splash/buzz any game-edge that just formed
+  fxFromLinks(fxDelay);                              // splash/buzz any game-edge that just formed
 }
 
 /* ───────────────── apply a scene ───────────────── */
 let current = 0;
 function applyScene(i) {
   const sc = scenes[i], fromSc = scenes[prevScene];
-  sceneBaselined = false;                            // this scene's first paint becomes the splash baseline
   // split screen ↔ four-ring grid is a pure camera move: every ring is laid out at its final spot up
   // front and only the camera travels, framed so the ring of four renders exactly where it was at the cut.
   // Everything that leaves is remapped into the new frame so it fades in place while riding the move.
@@ -1263,7 +1262,9 @@ function applyScene(i) {
       e.transition().duration(300).attr('opacity', 0).remove(); })
   );
 
-  renderLinks(true);
+  // a scene change can introduce games that weren't on the previous scene — ripple those in, but hold the
+  // splashes until the circles have ridden the belt (enterDelay + travel) so each ring lands on its settled circle
+  renderLinks(true, reduceMotion() ? 0 : enterDelay + 900);
   // replay precomputed frames if ready for this exact transition & size; otherwise run the live sim
   cancelAnimationFrame(replayRAF);
   const cached = frameCache[transKey(fromScene, i)];
