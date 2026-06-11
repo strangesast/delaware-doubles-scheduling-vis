@@ -2,8 +2,22 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b1220">
 <title>27 teams, 2 people waiting — a scheduling story</title>
+
+<!-- PWA: installable, offline-capable, full-bleed on iPhone -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Doubles">
+<meta name="application-name" content="Doubles">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+
 <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 <style>
   :root { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
@@ -15,7 +29,9 @@
   /* fixed full-screen physics graphic, behind the scrolling text */
   #graphic { position: fixed; inset: 0; z-index: 0;
              background: radial-gradient(120% 100% at 70% 10%, #16233b 0%, #0b1220 60%); }
-  #graphic svg { width: 100%; height: 100%; display: block; }
+  #graphic svg { width: 100%; height: 100%; display: block;
+                 will-change: transform; }              /* device-tilt parallax composites on this layer */
+  .fx circle { pointer-events: none; }                  /* connection ripples — purely decorative */
 
   /* ring guides, pairing links, team circles — strokes & label sizes scale with --sw (node radius / 14) */
   #graphic svg { --sw: 1; }
@@ -51,6 +67,19 @@
   }
   .divbox-g { animation: fadein .6s ease both; }
   @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+
+  /* baseline life: every circle drifts on a slow, tiny loop — per-node duration & phase
+     (--wob-d / --wob-t, set at creation) keep the crowd from breathing in sync */
+  @media (prefers-reduced-motion: no-preference) {
+    .team .wob { animation: wob var(--wob-d, 5s) ease-in-out var(--wob-t, 0s) infinite; }
+  }
+  @keyframes wob {
+    0%, 100% { transform: translate(0, 0); }
+    20% { transform: translate(calc( 1.3px * var(--sw)), calc(-0.9px * var(--sw))); }
+    40% { transform: translate(calc(-1.1px * var(--sw)), calc(-1.3px * var(--sw))); }
+    60% { transform: translate(calc(-1.4px * var(--sw)), calc( 1.0px * var(--sw))); }
+    80% { transform: translate(calc( 1.0px * var(--sw)), calc( 1.2px * var(--sw))); }
+  }
 
   /* scrolling narrative — graphic z0, cards z1 (above graphic), chrome z3+ (above cards) */
   main { position: relative; z-index: 1; pointer-events: none; }   /* clicks fall through to the graphic; .card re-enables */
@@ -113,6 +142,14 @@
           animation: bob 1.8s ease-in-out infinite; }
   @keyframes bob { 0%,100%{ transform: translateY(0); } 50%{ transform: translateY(4px); } }
 
+  /* iOS-only opt-in to motion access (shown by script when the permission API exists) */
+  #tiltbtn { position: fixed; z-index: 5; display: none; left: 50%; transform: translateX(-50%);
+             top: calc(16px + env(safe-area-inset-top)); align-items: center; gap: 7px; cursor: pointer;
+             background: rgba(15,23,42,0.82); border: 1px solid rgba(148,163,184,0.3); border-radius: 999px;
+             color: #cbd5e1; font: 600 12.5px -apple-system, "Segoe UI", sans-serif; padding: 9px 16px;
+             -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); -webkit-tap-highlight-color: transparent; }
+  #tiltbtn i { font-style: normal; color: #60a5fa; font-size: 14px; }
+
   /* chrome: title, progress, nav dots */
   .brand { position: fixed; top: 20px; left: 5vw; z-index: 3; color: #e2e8f0;
            font-size: 13px; font-weight: 700; letter-spacing: .04em; opacity: .85; pointer-events: none; }
@@ -157,6 +194,20 @@
     .card .stat { margin-top: 10px; padding-top: 9px; } .card .stat .num { font-size: 30px; }
     .dots { display: none; }
   }
+
+  /* ── PWA full-bleed: keep chrome clear of the Dynamic Island & home indicator ── */
+  @supports (top: env(safe-area-inset-top)) {
+    .brand         { top: calc(20px + env(safe-area-inset-top)); left: max(5vw, env(safe-area-inset-left)); }
+    #hud, #tapnote { top: calc(56px + env(safe-area-inset-top)); right: calc(22px + env(safe-area-inset-right)); }
+    .dots          { right: calc(22px + env(safe-area-inset-right)); }
+    .card          { bottom: calc(9vh + env(safe-area-inset-bottom)); left: max(5vw, env(safe-area-inset-left)); }
+    @media (max-width: 620px) {                        /* portrait phone keeps its centred card */
+      .card        { left: 50%; bottom: calc(3svh + env(safe-area-inset-bottom)); }
+    }
+    @media (max-height: 560px) {                       /* landscape phone keeps its left panel */
+      .card        { left: max(2.5vw, env(safe-area-inset-left)); top: calc(6vh + env(safe-area-inset-top)); bottom: auto; }
+    }
+  }
 </style>
 </head>
 <body>
@@ -165,6 +216,7 @@
 <div class="brand">Delaware Doubles · <span>scheduling</span></div>
 <div id="hud"></div>
 <div id="tapnote"><i>✦</i> tap a circle or a game to change pairings</div>
+<button id="tiltbtn"><i>↕</i> Enable tilt</button>
 <div id="graphic">
   <svg>
     <defs>
@@ -179,6 +231,7 @@
       <g class="links"></g>
       <g class="nodes"></g>
       <g class="caps"></g>
+      <g class="fx"></g>
     </g>
   </svg>
 </div>
@@ -406,6 +459,19 @@ const cancelSides = sc => { const st = sc.state || cancelRest(); return [
     ghostMask: st.R.ghost, title: 'A pool of nine — the old format', count: st.R.count },
 ]; };
 
+/* ── shared scene-choreography helpers ──
+   step: mutate the groups' state, repaint, and let the sim glide everyone to their new spots.
+   cascade: connect (or break) a list of [group, k] games one after another — the staggered,
+   one-game-at-a-time reveal the split scene introduced. Returns the time after the last game. */
+const step = fn => { fn(); refresh(); sim.alpha(0.5).alphaTarget(0).restart(); };
+const cascade = (at, t, games, mutate, spacing = 140) => {
+  games.forEach(g => { at(t, () => step(() => mutate(g))); t += spacing; });
+  return t;
+};
+const maskGames = (g, mask) => {                   // a matching mask, as the [group, k] list cascade takes
+  const ks = []; for (let k = 0; k < g.m; k++) if (onBit(mask, k)) ks.push([g, k]); return ks;
+};
+
 const scenes = [
   { key:'arrivals', sizes:[], live:true,
     kicker:'The whole story', title:'27 teams arrive — scheduled vs optimized',
@@ -505,49 +571,70 @@ const scenes = [
   { key:'problem', sizes:[9,9,9], cols:3, colored:true, match:'worst', interactive:true, live:true,
     kicker:'The problem', title:'Nine is odd — people get stranded',
     body:'On a bad night, three teams in every division are stuck at once, both of their opponents already busy.',
-    stat:{ n:18, tone:'bad', text:'people standing around for an hour — while it gets dark' } },
+    stat:{ n:18, tone:'bad', text:'people standing around for an hour — while it gets dark' },
+    run: ({ at }) => {                             // the bad night forms one game at a time, each with its splash
+      groups.forEach(g => g.mask = 0);
+      deriveFromGroups();
+      cascade(at, 900, groups.flatMap(g => maskGames(g, maskFromMatch(matchingFor('worst', g.m)))),
+        ([g, k]) => g.mask |= 1 << k);
+    } },
 
   { key:'reoptimize', sizes:[9,9,9], cols:3, colored:true, match:'best', reoptimize:true, interactive:true,
     kicker:'Salvaging it', title:'Interrupt games and re-pair',
     body:'Once games are already underway you cannot undo a bad start — you have to stop matches mid-game and re-pair, until only one team per division is left waiting.',
     stat:{ n:6, tone:'bad', text:'people wait — the best three nines can manage' },
-    run: ({ at }) => {                             // break a game → freed teams drift just outside →
-      groups.forEach(g => g.mask = maskFromMatch(matchingFor('worst', g.m)));   // (0,1)(3,4)(6,7): three stuck per ring
+    run: ({ at, fromScene }) => {                  // break a game → freed teams drift just outside →
+      // backing in from 8·8·11: those games end first, the circles regroup into the nines bare,
+      // and only once they've travelled does the bad night re-form, game by game
+      const moveIn = fromScene && fromScene.key === 'rebalance';
+      const worst = g => maskFromMatch(matchingFor('worst', g.m));   // (0,1)(3,4)(6,7): three stuck per ring
+      groups.forEach(g => g.mask = moveIn ? 0 : worst(g));
       deriveFromGroups();                          // stranded neighbours connect, one after another
-      const step = fn => { groups.forEach(fn); refresh(); sim.alpha(0.5).alphaTarget(0).restart(); };
-      at(350,  () => step(g => g.mask &= ~(1 << 3)));   // stop the T4–T5 game — both drift just outside the rim
-      at(1250, () => step(g => g.mask |= (1 << 2)));    // T3 + T4 glide onto the ring and connect
-      at(2150, () => step(g => g.mask |= (1 << 4)));    // then T5 + T6 — only T9 is left waiting per ring
+      const t0 = moveIn
+        ? cascade(at, 1400, groups.flatMap(g => maskGames(g, worst(g))), ([g, k]) => g.mask |= 1 << k) + 700
+        : 0;
+      at(t0 + 350,  () => step(() => groups.forEach(g => g.mask &= ~(1 << 3))));   // stop the T4–T5 game — both drift just outside the rim
+      at(t0 + 1250, () => step(() => groups.forEach(g => g.mask |= (1 << 2))));    // T3 + T4 glide onto the ring and connect
+      at(t0 + 2150, () => step(() => groups.forEach(g => g.mask |= (1 << 4))));    // then T5 + T6 — only T9 is left waiting per ring
     } },
 
   { key:'rebalance', sizes:[8,8,11], cols:3, colored:true, match:'best',
     kicker:'Fix · step 1', title:'Re-balance into 8 · 8 · 11',
     body:'Same teams, new groupings — resized toward even, four-friendly sizes. Now the games pair up: the two eights leave nobody waiting, the eleven just one.',
-    run: ({ at }) => {                             // show just the regrouped circles, then let the games pair up
-      groups.forEach(g => g.colored = false);
+    run: ({ at, fromScene }) => {                  // show just the regrouped circles, then the games pair up
+      if (fromScene && fromScene.key === 'split') return;   // back from the pools: the very same games
+                                                            // (identical pairs) stay connected through the move
+      groups.forEach(g => g.colored = false);      // one after another
       deriveFromGroups();
-      at(1100, () => {
-        groups.forEach(g => { g.colored = true; g.mask = maskFromMatch(matchingFor('best', g.m)); });
-        refresh();
-      });
+      at(1100, () => step(() => groups.forEach(g => { g.colored = true; g.mask = 0; })));   // regrouped, unpaired
+      cascade(at, 1600, groups.flatMap(g => maskGames(g, maskFromMatch(matchingFor('best', g.m)))),
+        ([g, k]) => g.mask |= 1 << k);
     } },
 
   { key:'split', sizes:FIX, cols:3, colored:false, live:true, ...SPLITGRID,
     kicker:'Fix · step 2', title:'Split into pools of four',
     body:'Break each division into independent pools of four — plus the one leftover pool — each kept within its division. Schedules interlock: every team plays one of its opponents first, then pairs of teams swap so everyone plays the other.',
-    run: ({ at }) => {                             // the night unfolds: round one connects game by game,
-      const step = fn => { fn(); refresh(); sim.alpha(0.5).alphaTarget(0).restart(); };   // then pairs swap opponents
+    run: ({ at, fromScene }) => {                  // the night unfolds: round one connects game by game,
       const round = par => groups.flatMap(g => {   // par 0 → edges (0,2,…), par 1 → (1,3,…): the two interlocked pairings
         const ks = []; for (let k = par; k + 1 < g.m + par; k += 2) ks.push([g, k]); return ks;
       });
       const first = round(0), second = round(1);
-      at(900, () => step(() => groups.forEach(g => { g.colored = true; g.mask = 0; })));  // everyone shows up, unpaired
-      let t = 1400;
-      first.forEach(([g, k]) => { at(t, () => step(() => g.mask |= 1 << k)); t += 140; });    // round one, one game at a time
-      t += 1400;                                                                              // let the first round breathe
-      first.forEach(([g, k]) => { at(t, () => step(() => g.mask &= ~(1 << k))); t += 90; });  // round over — games wind down
-      t += 600;
-      second.forEach(([g, k]) => { at(t, () => step(() => g.mask |= 1 << k)); t += 140; });   // swap: everyone's other opponent
+      // riding in from 8·8·11: those games ARE round one of the pool schedule (the identical id
+      // pairs), so they simply stay connected through the regrouping — no break-and-rejoin — and
+      // the night picks up where it is: round one winds down, then the swap
+      const carried = fromScene && fromScene.key === 'rebalance';
+      let t;
+      if (carried) {
+        groups.forEach(g => { g.colored = true; g.mask = 0; });
+        first.forEach(([g, k]) => g.mask |= 1 << k);
+        deriveFromGroups();
+        t = 2400;                                  // let the regrouping land, round one already underway
+      } else {
+        at(900, () => step(() => groups.forEach(g => { g.colored = true; g.mask = 0; })));  // everyone shows up, unpaired
+        t = cascade(at, 1400, first, ([g, k]) => g.mask |= 1 << k) + 1400;   // round one, one game at a time; breathe
+      }
+      t = cascade(at, t, first, ([g, k]) => g.mask &= ~(1 << k), 90);   // round over — games wind down
+      cascade(at, t + 600, second, ([g, k]) => g.mask |= 1 << k);       // swap: everyone's other opponent
     } },
 
   { key:'zoom', sizes:FIX, cols:3, colored:true, match:'best', interactive:true, focus:0, ...SPLITGRID,
@@ -593,18 +680,21 @@ const scenes = [
     kicker:'The pushback', title:'“But people cancel — more than half of all play days”',
     body:'True — and it cuts both ways. One team cancels on each side: the nine heals on paper, eight pairing up perfectly, while the four breaks — three teams can never all play at once.',
     stat:{ n:'9→8', tone:'bad', text:'heals · 4→3 breaks, one of three always sits — the league is right about this case' },
-    run: ({ at, scene, relayout }) => {
+    run: ({ at, scene, relayout, fromScene }) => {
+      // from the bonus grid the entrance is staged (dive → fade → comparison slides in from the
+      // right): hold the cancellation beats until that has settled
+      const t0 = fromScene && fromScene.key === 'bonus' ? 2300 : 0;
       scene.state = {                              // full attendance first — both rings look fine
         L: { absent: [], mask: (1<<0)|(1<<2), count: '4 · all playing' },
         R: { absent: [], mask: (1<<0)|(1<<2)|(1<<4)|(1<<6), count: '9 · 1 waiting' },
       };
       relayout();
-      at(1400, () => {                             // one team ✕'s out on each side — its game dies with it
+      at(t0 + 1400, () => {                        // one team ✕'s out on each side — its game dies with it
         scene.state.L.absent = [2]; scene.state.L.count = '3 left · T4 lost its game';
         scene.state.R.absent = [4]; scene.state.R.count = '8 left · 2 waiting';
         relayout();
       });
-      at(3000, () => {                             // re-pair on paper: the eight heal, the three cannot
+      at(t0 + 3000, () => {                        // re-pair on paper: the eight heal, the three cannot
         Object.assign(scene.state, cancelRest());
         relayout();
       });
@@ -736,14 +826,65 @@ const gGuides = svg.select('g.guides');
 const gLinks  = svg.select('g.links');
 const gNodes  = svg.select('g.nodes');
 const gCaps   = svg.select('g.caps');
+const gFx     = svg.select('g.fx');
 const cam     = svg.select('g.cam').attr('transform', 'translate(0,0) scale(1)');
 
+/* ── feedback when a game (match) forms: a ripple out from each circle + a subtle buzz ──
+   Every match — tapped or scene-driven — ends up as a non-"want" edge in LINKS, so we
+   diff the edge set each paint and react to the ones that just appeared. Only games that
+   FORM while a scene is live (a tap, a scripted reveal) ripple; edges that merely arrive
+   with a scene transition — already-existing games entering from out of frame — stay silent. */
+const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+let prevEdgeKeys   = new Set();  // game-edges shown on the previous paint
+let userAction     = false;      // a tap is in flight — only those buzz, autoplay stays silent
+let fxMuted        = false;      // true while applyScene paints — its edges arrive, they don't form
+let stagedExitHold = 0;          // staged transitions hold leaving games through the camera move,
+                                 // and leavers keep their colour (no grey reset) while they wait to fade
+let stagedEnterDelay = 0;        // …and hold entering games until their circles take the stage
+
+const RIPPLE = ['#34d399', '#86efac', '#6ee7b7'];   // the pairing-link greens
+function splash(node) {                              // concentric rings ripple outward from a circle as it connects
+  if (reduceMotion() || !node) return;
+  const x = node.x, y = node.y, rings = 2;
+  for (let i = 0; i < rings; i++) {
+    gFx.append('circle').datum(node)               // bound to the node so it tracks live position while it lives
+      .attr('cx', x).attr('cy', y).attr('fill', 'none')
+      .attr('stroke', RIPPLE[i % RIPPLE.length]).attr('stroke-width', NR * 0.3)
+      .attr('r', NR * 0.9).attr('opacity', 0.55)
+      .transition().delay(i * 130).duration(640).ease(d3.easeCubicOut)
+        .attr('r', NR * (3.1 + i * 0.7))           // expand past the rim, thinning and fading like water
+        .attr('stroke-width', NR * 0.05).attr('opacity', 0)
+        .remove();
+  }
+}
+function buzz() { if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) {} } }
+
+function fxFromLinks() {                              // called at the tail of every renderLinks
+  const cur = new Set();
+  LINKS.forEach(d => { if (!d.want) cur.add(Math.min(d.a, d.b) + '-' + Math.max(d.a, d.b)); });
+  const fresh = [];
+  cur.forEach(k => { if (!prevEdgeKeys.has(k)) fresh.push(k); });   // games not on screen a moment ago
+  prevEdgeKeys = cur;
+  if (fxMuted) { userAction = false; return; }       // scene-transition paint: sync the baseline silently
+  if (fresh.length && !reduceMotion()) {             // a tap or a scripted reveal — a game just formed:
+    fresh.forEach(k => {                             // splash right now, the instant its edge appears
+      const [a, b] = k.split('-').map(Number); splash(nodes[a]); splash(nodes[b]);
+    });
+    if (userAction) buzz();
+  }
+  userAction = false;
+}
+
+
 const nodeSel = gNodes.selectAll('g.team').data(nodes).join(enter => {
-  const g = enter.append('g').attr('class', 'team');
-  g.append('circle').attr('r', NR).attr('class', 'idle');
-  g.append('text').text(d => d.label);
-  g.append('title').text(d => d.id < 27 ? `${d.label} · ${TEAMS[d.id]}` : d.label);   // hover: real name
-  g.append('text').attr('class', 'nname').attr('opacity', 0)                          // name around the ring
+  const g = enter.append('g').attr('class', 'team')
+    .style('--wob-d', () => (4 + Math.random() * 3).toFixed(2) + 's')   // own tempo & phase for the idle
+    .style('--wob-t', () => (-Math.random() * 7).toFixed(2) + 's');     // drift — the crowd never syncs up
+  const w = g.append('g').attr('class', 'wob');      // the drift lives on this wrapper; d3 selects descend into it
+  w.append('circle').attr('r', NR).attr('class', 'idle');
+  w.append('text').text(d => d.label);
+  w.append('title').text(d => d.id < 27 ? `${d.label} · ${TEAMS[d.id]}` : d.label);   // hover: real name
+  w.append('text').attr('class', 'nname').attr('opacity', 0)                          // name around the ring
     .text(d => d.id < 27 ? TEAMS[d.id] : '');
   return g;
 });
@@ -958,7 +1099,8 @@ function deriveFromGroups() {
 
 /* ── paint colours + links + caption text without moving anything (used after clicks) ── */
 function renderColors() {
-  nodeSel.select('circle').attr('class', d => d.show ? d.state : 'idle');
+  nodeSel.select('circle').attr('class', function (d) {        // a staged exit keeps its colour while it fades
+    return d.show ? d.state : stagedExitHold ? this.getAttribute('class') : 'idle'; });
   nodeSel.select('text').text(d => d.state === 'absent' ? '✕' : d.label);   // cancelled teams read as ✕
   renderLinks(true);
   gCaps.selectAll('text.gcap').text(d => capText[d.key] || '');
@@ -968,10 +1110,11 @@ function renderLinks(animate) {
   const key = d => Math.min(d.a, d.b) + '-' + Math.max(d.a, d.b);
   gLinks.selectAll('line.pair').data(LINKS, key).join(
     enter => enter.append('line').attr('class', d => d.want ? 'pair want' : 'pair').attr('opacity', 0)
-      .call(e => e.transition().delay(animate ? 140 : 0).duration(animate ? 450 : 0).attr('opacity', d => d.op ?? 0.9)),
+      .call(e => e.transition().delay((animate ? 140 : 0) + stagedEnterDelay)
+        .duration(animate ? 450 : 0).attr('opacity', d => d.op ?? 0.9)),
     upd => upd.call(u => u.attr('class', d => d.want ? 'pair want' : 'pair')
       .transition().duration(300).attr('opacity', d => d.op ?? 0.9)),
-    exit => exit.call(e => e.transition().duration(animate ? 250 : 0).attr('opacity', 0).remove())
+    exit => exit.call(e => e.transition().delay(stagedExitHold).duration(animate ? 250 : 0).attr('opacity', 0).remove())
   );
   gLinks.selectAll('line.hit').data(LINKS, key).join(
     enter => enter.append('line').attr('class', 'hit').on('click', (ev, d) => onLinkClick(d)),
@@ -982,12 +1125,15 @@ function renderLinks(animate) {
   // place every line immediately so new ones are correct even while the sim is at rest
   gLinks.selectAll('line').attr('x1', d => nodes[d.a].x).attr('y1', d => nodes[d.a].y)
     .attr('x2', d => nodes[d.b].x).attr('y2', d => nodes[d.b].y);
+  fxFromLinks();                                     // splash/buzz any game-edge that just formed
 }
 
 /* ───────────────── apply a scene ───────────────── */
 let current = 0;
 function applyScene(i) {
   const sc = scenes[i], fromSc = scenes[prevScene];
+  fxMuted = true;                                    // edges painted while a scene applies (incl. a run hook's
+                                                     // synchronous relayout) already exist — no ripples for them
   // split screen ↔ four-ring grid is a pure camera move: every ring is laid out at its final spot up
   // front and only the camera travels, framed so the ring of four renders exactly where it was at the cut.
   // Everything that leaves is remapped into the new frame so it fades in place while riding the move.
@@ -1057,20 +1203,48 @@ function applyScene(i) {
   const camZoom = !!camSnap;
   const remapScale = camZoom ? s0 / s1 : 1;           // exiting elements ride along at their remapped spot while fading
   const remapX = v => (s0 * v + t0x - t1x) / s1, remapY = v => (s0 * v + t0y - t1y) / s1;
+  // entering the comparison from the bonus grid is staged: the camera dives onto the pool of four
+  // first; the rest of the league fades only once it lands; then the divider and the nine-ring
+  // world slide in from the right. (onecancels' run hook holds its beats until this has settled.)
+  const stagedCompare = sc.key === 'onecancels' && !!fromSc && fromSc.key === 'bonus';
+  const exitHold  = stagedCompare ? 1050 : 0;        // leavers ride the dive, then fade
+  const compareAt = stagedCompare ? 1700 : 0;        // …then the comparison arrives
+  const slideOff  = stagedCompare && !reduceMotion() ? innerWidth * 0.6 : 0;
+  // …and the reverse: leaving the comparison for the bonus grid, the nine departs to the right
+  // first, then the camera pulls back out from the remaining four to the whole league
+  const stagedUncompare = sc.key === 'bonus' && !!fromSc && fromSc.key === 'onecancels';
+  const uncompareAt = stagedUncompare ? 700 : 0;     // the league returns once the nine has left
+  const slideOut = stagedUncompare && !reduceMotion() ? innerWidth * 0.6 : 0;
+  stagedExitHold = exitHold;                         // leaving games & colours hold through the dive too
+  stagedEnterDelay = compareAt + uncompareAt;        // arriving games wait for their circles' entrance
   if (sc.run) sc.run({ at, scene: sc, relayout, fromScene: fromSc });   // the scene's timed choreography
   const live = !!sc.interactive;
-  const enterDelay = listToRings ? 1300 : 0;         // circles/text travel first; rings & chrome fade in after
+  if (slideOff) {                                    // the nine's circles wait in the wings, stage right…
+    nodes.forEach(n => { if (n.show && n.kind === 'clone') { n.x += slideOff; n.tx += slideOff; } });
+    renderPositions();
+    at(compareAt, () => {                            // …and glide on alongside the divider
+      nodes.forEach(n => { if (n.show && n.kind === 'clone') n.tx -= slideOff; });
+      sim.alpha(0.5).alphaTarget(0).restart();
+    });
+  }
+  if (slideOut) nodeSel.filter(d => d.kind === 'clone' && !d.show)    // the nine's circles (and their
+    .transition('exitright').duration(600).ease(d3.easeCubicIn)       // lines, which track them) depart
+    .tween('x', d => { const x0 = d.x, dx = slideOut / s1; return tt => { d.x = x0 + dx * tt; }; });
+  const enterDelay = listToRings ? 1300 : compareAt + uncompareAt;   // circles/text travel first; rings & chrome fade in after
 
-  nodeSel.transition().duration(550).style('opacity', d => d.show ? (d.op ?? 1) : 0);
+  nodeSel.transition().delay(d => d.show ? (d.kind === 'clone' ? compareAt : uncompareAt) : exitHold)
+    .duration(550).style('opacity', d => d.show ? (d.op ?? 1) : 0);
   const fs = Math.max(7.5, NR * 0.86);
+  const exitClass = function (d) {                 // a staged exit keeps its colour while it waits to fade
+    return d.show ? d.state : stagedExitHold ? this.getAttribute('class') : 'idle'; };
   if (camZoom) {   // counter the camera jump so apparent sizes stay continuous, then ease to the new size with the move
-    nodeSel.select('circle').attr('class', d => d.show ? d.state : 'idle')
+    nodeSel.select('circle').attr('class', exitClass)
       .attr('r', (+gNodes.select('circle').attr('r') || NR) * remapScale)
       .transition().duration(1050).ease(d3.easeCubicInOut).attr('r', NR);
     nodeSel.select('text').attr('font-size', (+gNodes.select('text').attr('font-size') || fs) * remapScale)
       .transition().duration(1050).ease(d3.easeCubicInOut).attr('font-size', fs);
   } else {
-    nodeSel.select('circle').attr('class', d => d.show ? d.state : 'idle')
+    nodeSel.select('circle').attr('class', exitClass)
       .transition().duration(400).attr('r', NR);
     nodeSel.select('text').attr('font-size', fs);
   }
@@ -1121,27 +1295,36 @@ function applyScene(i) {
   );
 
   gGuides.selectAll('circle.guide').data(guides, d => d.key).join(
-    enter => enter.append('circle').attr('class', 'guide')
-      .attr('cx', d => d.cx).attr('cy', d => d.cy).attr('r', d => d.r).attr('opacity', 0)
-      .call(e => e.transition().delay(enterDelay).duration(550).attr('opacity', 0.9)),
+    enter => enter.append('circle').attr('class', 'guide')                  // staged: the right-of-divider
+      .attr('cx', d => d.cx + (d.cx > innerWidth / 2 ? slideOff : 0))       // ring slides on from the right
+      .attr('cy', d => d.cy).attr('r', d => d.r).attr('opacity', 0)
+      .call(e => e.transition().delay(enterDelay).duration(550).attr('cx', d => d.cx).attr('opacity', 0.9)),
     upd => upd.call(u => (camZoom ? u.interrupt() : u.interrupt().transition().duration(500))   // interrupt revives any
       .attr('cx', d => d.cx).attr('cy', d => d.cy).attr('r', d => d.r).attr('opacity', 0.9)),   // mid-exit re-adoption
-    exit => exit.call(e => { if (camZoom) e.interrupt()
+    exit => exit.call(e => { e.each(function () {                          // screen side, read before the remap
+        this._right = s0 * +this.getAttribute('cx') + t0x > innerWidth / 2; });
+      if (camZoom) e.interrupt()
         .attr('cx', function () { return remapX(+this.getAttribute('cx')); })
         .attr('cy', function () { return remapY(+this.getAttribute('cy')); })
         .attr('r',  function () { return +this.getAttribute('r') * remapScale; });
-      e.transition().duration(350).attr('opacity', 0).remove(); })
+      e.transition().delay(exitHold).duration(slideOut ? 550 : 350)        // staged: the nine departs right
+        .attr('cx', function () { return +this.getAttribute('cx') + (this._right ? slideOut / s1 : 0); })
+        .attr('opacity', 0).remove(); })
   );
 
   const dv = d3.select('.divider');
-  if (divider) dv.attr('x1', divider.x1).attr('y1', divider.y1).attr('x2', divider.x2).attr('y2', divider.y2)
-                 .interrupt().transition().duration(550).attr('opacity', 0.8);
+  if (divider) dv.attr('x1', divider.x1 + slideOff).attr('y1', divider.y1)   // staged: in from the right
+                 .attr('x2', divider.x2 + slideOff).attr('y2', divider.y2)
+                 .interrupt().transition().delay(compareAt).duration(550)
+                 .attr('x1', divider.x1).attr('x2', divider.x2).attr('opacity', 0.8);
   else {
     dv.interrupt();
     if (camZoom && +dv.attr('opacity') > 0)          // ride the camera out at the remapped spot while fading
       dv.attr('x1', remapX(+dv.attr('x1'))).attr('y1', remapY(+dv.attr('y1')))
         .attr('x2', remapX(+dv.attr('x2'))).attr('y2', remapY(+dv.attr('y2')));
-    dv.transition().duration(350).attr('opacity', 0);
+    dv.transition().duration(slideOut ? 550 : 350)   // staged: it departs right with the nine
+      .attr('x1', +dv.attr('x1') + slideOut / s1).attr('x2', +dv.attr('x2') + slideOut / s1)
+      .attr('opacity', 0);
   }
 
   // camera: zoom into the focused group, or pull back to identity (zoom out) everywhere else
@@ -1161,22 +1344,39 @@ function applyScene(i) {
     camT = `translate(${W/2 - k*g.cx},${cy - k*g.cy}) scale(${k})`;
   }
   if (camSnap) cam.interrupt().attr('transform', camSnap);   // jump-cut to the matching framing, then travel
-  cam.interrupt().transition().duration(1050).ease(d3.easeCubicInOut).attr('transform', camT);
+  if (stagedCompare) {                               // dive to the four CENTRED on stage; when the nine arrives
+    const gz = detailGeom(W, H);                     // the four shifts left into its side to make room for it
+    cam.interrupt().transition().duration(1050).ease(d3.easeCubicInOut)
+      .attr('transform', `translate(${W / 2 - gz.aC[0]},0) scale(1)`);
+    at(compareAt, () => cam.interrupt().transition().duration(800).ease(d3.easeCubicInOut).attr('transform', camT));
+  }
+  else if (stagedUncompare)                          // hold the split frame while the nine departs right,
+    cam.interrupt().transition().delay(uncompareAt)  // then pull back out to the whole league
+      .duration(1050).ease(d3.easeCubicInOut).attr('transform', camT);
+  else cam.interrupt().transition().duration(1050).ease(d3.easeCubicInOut).attr('transform', camT);
 
   gCaps.selectAll('text.gcap').data(caps, d => d.key).join(
     enter => enter.append('text').attr('class', d => 'gcap ' + (d.cls || ''))
-      .attr('x', d => d.x).attr('y', d => d.y).attr('opacity', 0).text(d => capText[d.key] || '')
-      .call(e => e.transition().delay(enterDelay).duration(550).attr('opacity', 1)),
+      .attr('x', d => d.x + (d.x > innerWidth / 2 ? slideOff : 0))           // staged: in from the right
+      .attr('y', d => d.y).attr('opacity', 0).text(d => capText[d.key] || '')
+      .call(e => e.transition().delay(enterDelay).duration(550).attr('x', d => d.x).attr('opacity', 1)),
     upd => upd.call(u => { u.attr('class', d => 'gcap ' + (d.cls || '')).text(d => capText[d.key] || '');
       (camZoom ? u.interrupt() : u.interrupt().transition().duration(450))            // interrupt revives any
         .attr('x', d => d.x).attr('y', d => d.y).attr('opacity', 1); }),              // mid-exit re-adoption
-    exit => exit.call(e => { if (camZoom) e.interrupt()
+    exit => exit.call(e => { e.each(function () {                          // screen side, read before the remap
+        this._right = s0 * +this.getAttribute('x') + t0x > innerWidth / 2; });
+      if (camZoom) e.interrupt()
         .attr('x', function () { return remapX(+this.getAttribute('x')); })
         .attr('y', function () { return remapY(+this.getAttribute('y')); });
-      e.transition().duration(300).attr('opacity', 0).remove(); })
+      e.transition().delay(exitHold).duration(slideOut ? 550 : 300)        // staged: the nine's captions depart right
+        .attr('x', function () { return +this.getAttribute('x') + (this._right ? slideOut / s1 : 0); })
+        .attr('opacity', 0).remove(); })
   );
 
+  // paint this scene's edge set and sync the fx baseline silently — games a transition carries in already
+  // exist; from here on (timed reveals, taps) anything new is a game actually forming, and ripples
   renderLinks(true);
+  fxMuted = false; stagedExitHold = 0; stagedEnterDelay = 0;
   // replay precomputed frames if ready for this exact transition & size; otherwise run the live sim
   cancelAnimationFrame(replayRAF);
   const cached = frameCache[transKey(fromScene, i)];
@@ -1422,6 +1622,7 @@ function renderPositions() {
   gLinks.selectAll('line')
     .attr('x1', d => nodes[d.a].x).attr('y1', d => nodes[d.a].y)
     .attr('x2', d => nodes[d.b].x).attr('y2', d => nodes[d.b].y);
+  gFx.selectAll('circle').attr('cx', d => d.x).attr('cy', d => d.y);  // live ripples follow their circle (radius/fade keep transitioning)
 }
 
 // physics: gentle pull toward each slot + collision; slow, graceful glide
@@ -1437,6 +1638,7 @@ nodeSel.on('click', (ev, d) => {
   const g = groupOf(d.id);
   if (!g || !g.colored || !g.interactive) return;
   cycleTeam(g, g.members.indexOf(d.id));
+  userAction = true;                                 // a new game from this tap should buzz
   refresh();
   sim.alpha(0.4).alphaTarget(0).restart();         // glide the re-paired in and the newly stranded out
 });
@@ -1510,6 +1712,52 @@ precomputeAll();                                   // kick off the worker in the
 sections[0].classList.add('active'); activeSec = sections[0];
 nodeSel.style('opacity', 0);                       // everything enters through its scene (arrivals spawn one by one)
 applyScene(0);
+
+/* ── device tilt → a subtle parallax sway of the whole graphic (not the chrome) ──
+   Translating the <svg> shifts the circles & links against the fixed gradient behind them,
+   so it reads as gentle depth. Clamped to a few px and eased, never dramatic. */
+(function deviceTilt() {
+  if (reduceMotion()) return;
+  const svgEl = svg.node();
+  const MAX = 14;                                   // px — the most the field ever drifts
+  let baseG = null, baseB = null, tx = 0, ty = 0, cx = 0, cy = 0, running = false, listening = false;
+
+  function onTilt(e) {
+    const g = e.gamma, b = e.beta;
+    if (g == null || b == null) return;                       // no orientation in this event
+    if (baseG == null) { baseG = g; baseB = b; }              // first reading = however you're holding it
+    tx = clamp((g - baseG) / 18, -1, 1) * MAX;                // roll  → left/right
+    ty = clamp((b - baseB) / 18, -1, 1) * MAX;                // pitch → up/down
+    if (!running) { running = true; requestAnimationFrame(loop); }
+  }
+  function loop() {                                  // ease toward the target so the sway is smooth
+    cx += (tx - cx) * 0.09; cy += (ty - cy) * 0.09;
+    svgEl.style.transform = `translate3d(${cx.toFixed(2)}px, ${cy.toFixed(2)}px, 0)`;
+    requestAnimationFrame(loop);
+  }
+  function listen() { if (!listening) { listening = true; addEventListener('deviceorientation', onTilt, true); } }
+
+  const DO = window.DeviceOrientationEvent, DM = window.DeviceMotionEvent;
+  if (!DO) return;
+  if (typeof DO.requestPermission === 'function') {           // iOS: needs a deliberate tap on a real control
+    const btn = document.getElementById('tiltbtn');           // (the implicit-gesture path never prompts in a home-screen app)
+    btn.style.display = 'inline-flex';
+    btn.addEventListener('click', () => {
+      btn.style.display = 'none';
+      Promise.resolve(DO.requestPermission()).then(s => { if (s === 'granted') listen(); }).catch(() => {});
+      if (DM && typeof DM.requestPermission === 'function') DM.requestPermission().catch(() => {});
+    });
+  } else {
+    listen();                                                 // Android / desktop sensors: no permission needed
+  }
+})();
+</script>
+
+<script>
+  /* register the service worker so the story installs and works offline */
+  if ('serviceWorker' in navigator) {
+    addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  }
 </script>
 </body>
 </html>
