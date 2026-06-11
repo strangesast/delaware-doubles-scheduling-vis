@@ -2,8 +2,22 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b1220">
 <title>27 teams, 2 people waiting — a scheduling story</title>
+
+<!-- PWA: installable, offline-capable, full-bleed on iPhone -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Doubles">
+<meta name="application-name" content="Doubles">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+
 <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 <style>
   :root { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
@@ -156,6 +170,20 @@
     .card h2 { font-size: 18px; margin-bottom: 6px; } .card p { font-size: 13.5px; line-height: 1.45; }
     .card .stat { margin-top: 10px; padding-top: 9px; } .card .stat .num { font-size: 30px; }
     .dots { display: none; }
+  }
+
+  /* ── PWA full-bleed: keep chrome clear of the Dynamic Island & home indicator ── */
+  @supports (top: env(safe-area-inset-top)) {
+    .brand         { top: calc(20px + env(safe-area-inset-top)); left: max(5vw, env(safe-area-inset-left)); }
+    #hud, #tapnote { top: calc(56px + env(safe-area-inset-top)); right: calc(22px + env(safe-area-inset-right)); }
+    .dots          { right: calc(22px + env(safe-area-inset-right)); }
+    .card          { bottom: calc(9vh + env(safe-area-inset-bottom)); left: max(5vw, env(safe-area-inset-left)); }
+    @media (max-width: 620px) {                        /* portrait phone keeps its centred card */
+      .card        { left: 50%; bottom: calc(3svh + env(safe-area-inset-bottom)); }
+    }
+    @media (max-height: 560px) {                       /* landscape phone keeps its left panel */
+      .card        { left: max(2.5vw, env(safe-area-inset-left)); top: calc(6vh + env(safe-area-inset-top)); bottom: auto; }
+    }
   }
 </style>
 </head>
@@ -1510,6 +1538,13 @@ precomputeAll();                                   // kick off the worker in the
 sections[0].classList.add('active'); activeSec = sections[0];
 nodeSel.style('opacity', 0);                       // everything enters through its scene (arrivals spawn one by one)
 applyScene(0);
+</script>
+
+<script>
+  /* register the service worker so the story installs and works offline */
+  if ('serviceWorker' in navigator) {
+    addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  }
 </script>
 </body>
 </html>
