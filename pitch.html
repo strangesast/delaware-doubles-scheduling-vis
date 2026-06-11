@@ -32,6 +32,10 @@
   #graphic svg { width: 100%; height: 100%; display: block;
                  will-change: transform; }              /* device-tilt parallax composites on this layer */
   .fx circle { pointer-events: none; }                  /* connection ripples — purely decorative */
+  /* a game's clock, under the circles: the link widens into a bar (track) and a bright fill creeps along it */
+  .progs line { stroke-linecap: round; pointer-events: none; }
+  .progs line.track { stroke: #15803d; stroke-width: calc(14px * var(--sw)); opacity: .85; }
+  .progs line.prog  { stroke: #ecfdf5; stroke-width: calc(9px * var(--sw)); }
 
   /* ring guides, pairing links, team circles — strokes & label sizes scale with --sw (node radius / 14) */
   #graphic svg { --sw: 1; }
@@ -150,6 +154,24 @@
              -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); -webkit-tap-highlight-color: transparent; }
   #tiltbtn i { font-style: normal; color: #60a5fa; font-size: 14px; }
 
+  /* the big time-lapse clock: large but muted, top-right under the tap note; vmin-sized so it fits
+     every resolution and orientation. Icy gradient fill behind a thin bright outline. */
+  #lapse { position: fixed; z-index: 1; right: 4vw; top: calc(64px + env(safe-area-inset-top, 0px));
+           font-family: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+           font-weight: 700; letter-spacing: .02em;    /* bold numerals — universally available faces */
+           font-size: clamp(44px, 10vmin, 104px); line-height: 1.2;   /* room for descenders — at 1 the
+                                                      "p" of pm pokes below the box, outside the fill */
+           font-variant-numeric: tabular-nums;
+           /* the fill is a sunset sky — upper sky, a tight pink band, horizon glow — whose stops
+              the lapse timer re-tints as the night runs 6 → 9pm into darkness (default = dusk) */
+           background: linear-gradient(180deg, rgba(44, 60, 99, 0.34) 0%, rgba(44, 60, 99, 0.34) 38%,
+                                               rgba(178, 85, 135, 0.38) 60%, rgba(232, 95, 79, 0.40) 68%,
+                                               rgba(232, 95, 79, 0.40) 100%);
+           -webkit-background-clip: text; background-clip: text;
+           color: transparent; -webkit-text-fill-color: transparent;
+           -webkit-text-stroke: 0.5px rgba(226, 232, 240, 0.18);   /* hairline edge, barely there */
+           pointer-events: none; display: none; }
+
   /* chrome: title, progress, nav dots */
   .brand { position: fixed; top: 20px; left: 5vw; z-index: 3; color: #e2e8f0;
            font-size: 13px; font-weight: 700; letter-spacing: .04em; opacity: .85; pointer-events: none; }
@@ -215,6 +237,7 @@
 <div id="progress"></div>
 <div class="brand">Delaware Doubles · <span>scheduling</span></div>
 <div id="hud"></div>
+<div id="lapse"></div>
 <div id="tapnote"><i>✦</i> tap a circle or a game to change pairings</div>
 <button id="tiltbtn"><i>↕</i> Enable tilt</button>
 <div id="graphic">
@@ -229,6 +252,7 @@
       <g class="boxes"></g>
       <g class="guides"></g>
       <g class="links"></g>
+      <g class="progs"></g>
       <g class="nodes"></g>
       <g class="caps"></g>
       <g class="fx"></g>
@@ -314,6 +338,8 @@ function sceneTimer() {
 const refresh = () => { deriveFromGroups(); renderColors(); };   // recolour in place after a mask change
 const hudEl = document.getElementById('hud');                    // small stats overlay (tallies, gauges)
 const setHud = html => { hudEl.style.display = html == null ? 'none' : 'block'; if (html != null) hudEl.innerHTML = html; };
+const lapseEl = document.getElementById('lapse');                // the big time-lapse clock
+const setLapse = txt => { lapseEl.style.display = txt == null ? 'none' : 'block'; if (txt != null) lapseEl.textContent = txt; };
 
 /* ───────────────── the scenes (scroll stops) ───────────────── */
 const DIVRINGS = evenGroups(27, 3).map(g => splitGroups(g, 4));    // [[4,4],[4,4],[4,7]] — rings per division
@@ -471,11 +497,17 @@ const cascade = (at, t, games, mutate, spacing = 140) => {
 const maskGames = (g, mask) => {                   // a matching mask, as the [group, k] list cascade takes
   const ks = []; for (let k = 0; k < g.m; k++) if (onBit(mask, k)) ks.push([g, k]); return ks;
 };
+const gameOn  = (a, b) => LINKS.some(l => !l.want && ((l.a === a && l.b === b) || (l.a === b && l.b === a)));
+const edgeBit = (a, b) => {                        // the [group, ring-edge bit] behind a live game
+  const g = groupOf(a), i = g ? g.members.indexOf(a) : -1, j = g ? g.members.indexOf(b) : -1;
+  if (i < 0 || j < 0) return null;
+  return (i + 1) % g.m === j ? [g, i] : (j + 1) % g.m === i ? [g, j] : null;
+};
 
 const scenes = [
   { key:'arrivals', sizes:[], live:true,
     kicker:'The whole story', title:'27 teams arrive — scheduled vs optimized',
-    body:'With a few small changes, the league can go from 3 teams waiting on a good night — 9 on a bad one — to a single team, every night. Watch a real night: teams trickle in and grab whichever scheduled opponent is free; orange means both are taken. Scroll to see how.',
+    body:'With a few small changes, the league can go from 3 teams waiting on a good night — 9 on a bad one — to a single team, every night. A real night plays out here: teams trickle in and grab whichever scheduled opponent is free; orange means both are taken. Scroll to see how.',
     stat:{ n:'9 → 1', tone:'bad', text:'stranded on a bad night — today vs optimized' },
     run: ({ at }) => {
       const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -562,7 +594,7 @@ const scenes = [
 
   { key:'all', sizes:[27], cols:1, colored:false,
     kicker:'The league', title:'27 teams',
-    body:'Every team is scheduled to play just its two neighbours in the circle. Watch how we group them.' },
+    body:'Every team is scheduled to play just its two neighbours in the circle, so the whole league is one big ring — and every grouping that follows is just a different way of cutting it.' },
 
   { key:'today', sizes:[9,9,9], cols:3, colored:false,
     kicker:'Today', title:'Three divisions of nine',
@@ -613,40 +645,111 @@ const scenes = [
 
   { key:'split', sizes:FIX, cols:3, colored:false, live:true, ...SPLITGRID,
     kicker:'Fix · step 2', title:'Split into pools of four',
-    body:'Break each division into independent pools of four — plus the one leftover pool — each kept within its division. Schedules interlock: every team plays one of its opponents first, then pairs of teams swap so everyone plays the other.',
+    body:'Break each division into independent pools of four — plus the one leftover pool — each kept within its division. Every team plays one of its opponents, then pairs swap so everyone plays the other; in the odd pool, whoever sits a round plays right after. The clock runs the night: teams that never wait finish by 8, the sitters by 9.',
     run: ({ at, fromScene }) => {                  // the night unfolds: round one connects game by game,
       const round = par => groups.flatMap(g => {   // par 0 → edges (0,2,…), par 1 → (1,3,…): the two interlocked pairings
         const ks = []; for (let k = par; k + 1 < g.m + par; k += 2) ks.push([g, k]); return ks;
       });
-      const first = round(0), second = round(1);
+      // three beats cover every pool edge: the two interlocked rounds, then the odd pools'
+      // wrap-around game — its two teams each sat out one round, so this last game is how
+      // EVERYONE gets their two games; sitting simply means waiting a turn, never the night
+      const rounds = [round(0), round(1), groups.flatMap(g => g.m % 2 ? [[g, g.m - 1]] : [])];
       // riding in from 8·8·11: those games ARE round one of the pool schedule (the identical id
-      // pairs), so they simply stay connected through the regrouping — no break-and-rejoin — and
-      // the night picks up where it is: round one winds down, then the swap
+      // pairs), so they simply stay connected through the regrouping — no break-and-rejoin
       const carried = fromScene && fromScene.key === 'rebalance';
-      let t;
       if (carried) {
         groups.forEach(g => { g.colored = true; g.mask = 0; });
-        first.forEach(([g, k]) => g.mask |= 1 << k);
+        rounds[0].forEach(([g, k]) => g.mask |= 1 << k);
         deriveFromGroups();
-        t = 2400;                                  // let the regrouping land, round one already underway
       } else {
         at(900, () => step(() => groups.forEach(g => { g.colored = true; g.mask = 0; })));  // everyone shows up, unpaired
-        t = cascade(at, 1400, first, ([g, k]) => g.mask |= 1 << k) + 1400;   // round one, one game at a time; breathe
       }
-      t = cascade(at, t, first, ([g, k]) => g.mask &= ~(1 << k), 90);   // round over — games wind down
-      cascade(at, t + 600, second, ([g, k]) => g.mask |= 1 << k);       // swap: everyone's other opponent
+      const playRound = (games, t0, preset) => {   // connect each game (unless already on), run its clock,
+        const clockAt = [];                        // end it on its own time; returns when the last one ends
+        if (preset) games.forEach((_, i) => clockAt[i] = t0);
+        else games.forEach(([g, k], i) => { at(t0, () => step(() => g.mask |= 1 << k)); clockAt[i] = t0 + 250; t0 += 140; });
+        let over = 0;
+        games.forEach(([g, k], i) => {
+          const dur = 2300 + Math.random() * 1500; // every game runs its own length — never in sync
+          at(clockAt[i], () => gameClock(g.members[k], g.members[(k + 1) % g.m], dur));
+          at(clockAt[i] + dur, () => step(() => {  // time! that game ends — and finishing a second
+            g.mask &= ~(1 << k);                   // game leaves a team green: done for the night
+            [k, (k + 1) % g.m].forEach(j => {
+              g.played = g.played || {}; g.played[j] = (g.played[j] || 0) + 1;
+              if (g.played[j] >= 2) (g.done = g.done || new Set()).add(j);
+            });
+          }));
+          over = Math.max(over, clockAt[i] + dur);
+        });
+        return over;
+      };
+      // the clock's fill is the evening sky: a sunset — upper sky over a TIGHT pink/orange band
+      // and the horizon glow beneath it — with every colour riding the same 6 → 9pm lapse to dark
+      const ramp = cols => d3.piecewise(d3.interpolateRgb, cols);
+      const skyUp   = ramp(['#9ed1f5', '#7fa8e0', '#54639f', '#222f52', '#0a1322']);  // blue → night
+      const skyBand = ramp(['#ffc46b', '#fb8a5f', '#d96a8e', '#5a4a82', '#101a30']);  // the sunset band
+      const skyGlow = ramp(['#ffe08a', '#ffb347', '#f0705a', '#7a4f74', '#0e1830']);  // horizon glow
+      const tint = (c, o) => { const k = d3.color(c); k.opacity = o; return k.formatRgb(); };
+      const dusk = f => Math.pow(f, 1.7);          // hold the light: real darkness only lands ~8:30
+      const sky = f => `linear-gradient(180deg, ${tint(skyUp(dusk(f)), 0.34)} 0%, ${tint(skyUp(dusk(f)), 0.34)} 38%, `
+        + `${tint(skyBand(dusk(f)), 0.38)} 60%, ${tint(skyGlow(dusk(f)), 0.40)} 68%, ${tint(skyGlow(dusk(f)), 0.40)} 100%)`;
+      const lapse = (a, b, c) => {                 // the background clock, a time lapse of the night:
+        const seqAt = applySeq;                    // 6pm first serves · ~8pm the fours are done (nobody
+        let shown = '';                            // waited) · ~9pm the sitters finish their second game
+        const tmr = d3.timer(el => {               // dies (and hides) the moment any scene re-applies —
+          if (applySeq !== seqAt) { setLapse(null); return tmr.stop(); }   // a scroll, a resize…
+          const [p, q] = el <= b ? [[a, 360], [b, 480]] : [[b, 480], [c, 540]];   // ms → minutes past noon
+          const f = clamp((el - p[0]) / (q[0] - p[0]), 0, 1);
+          const m = Math.round(p[1] + f * (q[1] - p[1]));
+          const txt = `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')} pm`;
+          if (txt !== shown) {
+            setLapse(shown = txt);
+            // longhand only: the `background` shorthand would reset background-clip:text and
+            // flood the whole box with the gradient instead of just the glyphs
+            lapseEl.style.backgroundImage = sky((m - 360) / 180);   // the sky darkens with the hour
+          }
+          if (el >= c) tmr.stop();                 // hold at 9:00 until the next night resets it
+        });
+      };
+      const play = first => {                      // one full night: round one, the swap, the wrap game —
+        if (!first) at(600, () => step(() =>       // a fresh night: everyone back to waiting
+          groups.forEach(g => { g.played = {}; g.done = new Set(); })));
+        const t0 = first && carried ? 1800 : 1400;
+        const t1 = playRound(rounds[0], t0, first && carried);
+        const t2 = playRound(rounds[1], t1 + 600);
+        const t3 = rounds[2].length ? playRound(rounds[2], t2 + 600) : t2;
+        lapse(t0, t2, t3);
+        at(t3 + 1600, () => play(false));          // …then the next night plays out
+      };
+      play(true);
     } },
 
   { key:'zoom', sizes:FIX, cols:3, colored:true, match:'best', interactive:true, focus:0, ...SPLITGRID,
-    kicker:'Look closer', title:'Zoom in on one pool of four',
-    body:'The camera dives into a single pool of four. Break a game or make one — it always pairs back up, with nobody left out.' },
+    kicker:'Look closer', title:'One pool of four, up close',
+    body:'Teams in this pool only ever play each other: one game each first, then pairs swap so everyone gets both of its scheduled games. Tap a circle or a game to meddle — a four always pairs straight back up, nobody left out.',
+    run: ({ at }) => {                             // the pool's night, self-running: every game that
+      const g = groups[0];                         // forms — scripted or tapped — runs its clock, then
+      if (!g || g.m !== 4 || !g.colored) return;   // ends; an emptied pool pairs straight back up
+      let par = 0;                                 // which interlocked pairing is up next
+      onNewGame = (a, b) => {
+        if (groupOf(a) !== g || groupOf(b) !== g) return;        // clocks live in the focused pool
+        gameClock(a, b, 2400 + Math.random() * 1400, () => {
+          const e = edgeBit(a, b);
+          if (e) step(() => g.mask &= ~(1 << e[1]));             // time! the game ends…
+          if (!g.mask) at(800, () => { if (!g.mask) {            // …and an idle pool re-pairs with the
+            par ^= 1; step(() => g.mask |= par ? 0b1010 : 0b0101); } });   // other pairing
+        });
+      };
+      at(1500, () => maskGames(g, g.mask).forEach(([gg, k]) =>   // round one is on from the start —
+        onNewGame(gg.members[k], gg.members[(k + 1) % gg.m])));  // its clocks begin once the dive lands
+    } },
 
   { key:'twoworlds', detail:true, stage:'setup', sides: fourInNine,
     kicker:'Two worlds', title:'The same four, two ways',
     body:'Left: their own pool of four. Right: the same four sharing a pool of nine, the old way. One team (T1) is running late to both.' },
 
   { key:'latearrival', detail:true, stage:'late', sides: fourInNine, interactive:true,
-    kicker:'Watch', title:'T1 finally shows up',
+    kicker:'Running late', title:'T1 finally shows up',
     body:'In the four, a free partner is always waiting — T1 plays at once. In the nine, both its neighbours already paired off with strangers, so T1 is stranded for the hour.' },
 
   { key:'payoff', sizes:FIX, cols:3, colored:true, match:'best', interactive:true, ...SPLITGRID,
@@ -702,7 +805,7 @@ const scenes = [
 
   { key:'twocancel', detail:true, sides: cancelSides,
     kicker:'Worst luck', title:'Two cancel from the same pool',
-    body:'The scariest case for the pools: an opposite pair cancels and the other two have no scheduled game — a dead pool. But watch the nine: two cancellations spaced two apart strand the team between them just the same. Every team has exactly two scheduled opponents in both formats.',
+    body:'The scariest case for the pools: an opposite pair cancels and the other two have no scheduled game — a dead pool. But the nine is no safer: two cancellations spaced two apart strand the team between them just the same. Every team has exactly two scheduled opponents in both formats.',
     stat:{ n:'0.077 = 0.077', tone:'', text:'expected teams fully blocked, either format — identical, provably. And a dead pool’s two teams are standing at the same net: they can simply play each other.' },
     run: ({ at, scene, relayout }) => {
       const lucky = () => { scene.state = {       // 2 of 3 draws: the survivors are neighbours
@@ -827,6 +930,7 @@ const gLinks  = svg.select('g.links');
 const gNodes  = svg.select('g.nodes');
 const gCaps   = svg.select('g.caps');
 const gFx     = svg.select('g.fx');
+const gProg   = svg.select('g.progs');   // game clocks: above the links, under the circles
 const cam     = svg.select('g.cam').attr('transform', 'translate(0,0) scale(1)');
 
 /* ── feedback when a game (match) forms: a ripple out from each circle + a subtle buzz ──
@@ -841,6 +945,7 @@ let fxMuted        = false;      // true while applyScene paints — its edges a
 let stagedExitHold = 0;          // staged transitions hold leaving games through the camera move,
                                  // and leavers keep their colour (no grey reset) while they wait to fade
 let stagedEnterDelay = 0;        // …and hold entering games until their circles take the stage
+let onNewGame = null;            // clock scenes hook this: called for every game that forms live
 
 const RIPPLE = ['#34d399', '#86efac', '#6ee7b7'];   // the pairing-link greens
 function splash(node) {                              // concentric rings ripple outward from a circle as it connects
@@ -859,6 +964,31 @@ function splash(node) {                              // concentric rings ripple 
 }
 function buzz() { if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) {} } }
 
+// a game's clock: the link widens into a bar (track) and a bright fill creeps from a to b; when it
+// arrives, time is up and onDone fires. Self-placing every frame so it follows the circles — and
+// self-cancelling, WITHOUT firing onDone, if the game ends early (a tap broke it) or the scene moves
+// on. One clock per live game, so taps and scripts can't double up.
+const activeClocks = new Set();
+function gameClock(a, b, dur, onDone) {
+  const key = Math.min(a, b) + '-' + Math.max(a, b);
+  if (activeClocks.has(key)) return;
+  activeClocks.add(key);
+  const A = nodes[a], B = nodes[b], sceneAt = current, rm = reduceMotion();
+  const track = rm ? null : gProg.append('line').attr('class', 'track');
+  const fill  = rm ? null : gProg.append('line').attr('class', 'prog');
+  const stop = () => { activeClocks.delete(key); tmr.stop(); if (track) { track.remove(); fill.remove(); } };
+  const tmr = d3.timer(el => {
+    if (current !== sceneAt || !gameOn(a, b)) return stop();   // broken early / scene left — no onDone
+    const t = Math.min(1, el / dur);
+    if (track) {
+      track.attr('x1', A.x).attr('y1', A.y).attr('x2', B.x).attr('y2', B.y);
+      fill.attr('x1', A.x).attr('y1', A.y)
+          .attr('x2', A.x + (B.x - A.x) * t).attr('y2', A.y + (B.y - A.y) * t);
+    }
+    if (t >= 1) { stop(); if (onDone) onDone(); }              // time! the game is over
+  });
+}
+
 function fxFromLinks() {                              // called at the tail of every renderLinks
   const cur = new Set();
   LINKS.forEach(d => { if (!d.want) cur.add(Math.min(d.a, d.b) + '-' + Math.max(d.a, d.b)); });
@@ -872,6 +1002,8 @@ function fxFromLinks() {                              // called at the tail of e
     });
     if (userAction) buzz();
   }
+  if (onNewGame) fresh.forEach(k => {              // clock scenes: every game that forms gets its clock,
+    const [a, b] = k.split('-').map(Number); onNewGame(a, b); });   // tapped and scripted alike
   userAction = false;
 }
 
@@ -1079,19 +1211,20 @@ function deriveFromGroups() {
     g.members.forEach((id, k) => nodes[id].state =
       ab.has(k) ? 'absent'
       : ab.has((k+1)%g.m) && ab.has((k-1+g.m)%g.m) ? 'isolated'   // both scheduled opponents cancelled
+      : g.done && g.done.has(k) ? 'play'           // both games played — done for the night, stays green
       : 'wait');
-    let links = 0;
     for (let k = 0; k < g.m; k++) if (onBit(g.mask, k) && !ab.has(k) && !ab.has((k+1)%g.m)) {
       const a = g.members[k], b = g.members[(k+1)%g.m];
       const ghost = g.ghostFrom != null && (k >= g.ghostFrom || (k+1)%g.m >= g.ghostFrom);
-      nodes[a].state = 'play'; nodes[b].state = 'play'; LINKS.push({ a, b, op: ghost ? 0.4 : 0.9 }); links++;
+      nodes[a].state = 'play'; nodes[b].state = 'play'; LINKS.push({ a, b, op: ghost ? 0.4 : 0.9 });
     }
     g.members.forEach(id => {                    // the stranded sit just outside the rim, the matched on it
       const nd = nodes[id], a = Math.atan2(nd.ty - g.cy, nd.tx - g.cx);
       const R = g.r * (nd.state === 'wait' ? WAIT_OUT : 1);
       nd.tx = g.cx + R * Math.cos(a); nd.ty = g.cy + R * Math.sin(a);
     });
-    const present = g.m - ab.size, waits = present - 2 * links;
+    const present = g.m - ab.size;                 // the done count green-but-resting teams as playing,
+    const waits = g.members.filter(id => nodes[id].state === 'wait').length;   // not waiting
     capText[g.key] = ab.size ? `${present} present · ${waits ? waits + ' waiting' : 'all playing'}`
                              : waits ? `${g.m} · ${waits} waiting` : `${g.m} · all playing`;
   });
@@ -1145,8 +1278,11 @@ function applyScene(i) {
   SCENE_CARD = CARDS_H[i] || CARD_H;                 // this scene's stage avoids this scene's card
   const { at } = sceneTimer();                       // this scene's timer scope; cancels all earlier ones
   setHud(null);                                      // scenes that use the HUD repopulate it from their run hook
+  setLapse(null);                                    // …same for the time-lapse clock
   document.getElementById('tapnote').style.display = sc.interactive ? 'block' : 'none';
   sim.force('attract', null);                        // scene-scoped link attraction — a run hook may reinstall it
+  gProg.selectAll('line').interrupt().remove();      // game clocks (track + fill) are scene-scoped too
+  onNewGame = null;                                  // …as is the new-game hook that spawns them
   // roster-list scenes use the chip overlay; entering divisions from the flat list is staged —
   // the list first opens gaps at the division boundaries, then rearranges into columns
   const fromFlat = sc.names === 'divisions' && !!fromSc && fromSc.names === 'flat';
@@ -1219,11 +1355,17 @@ function applyScene(i) {
   stagedEnterDelay = compareAt + uncompareAt;        // arriving games wait for their circles' entrance
   if (sc.run) sc.run({ at, scene: sc, relayout, fromScene: fromSc });   // the scene's timed choreography
   const live = !!sc.interactive;
-  if (slideOff) {                                    // the nine's circles wait in the wings, stage right…
-    nodes.forEach(n => { if (n.show && n.kind === 'clone') { n.x += slideOff; n.tx += slideOff; } });
+  if (slideOff) {                                    // the nine's circles wait in the wings, stage right —
+    nodes.forEach(n => {                             // at 2× the divider's distance…
+      if (n.show && n.kind === 'clone') { n.x += slideOff * 2; n.tx += slideOff * 2; } });
     renderPositions();
-    at(compareAt, () => {                            // …and glide on alongside the divider
-      nodes.forEach(n => { if (n.show && n.kind === 'clone') n.tx -= slideOff; });
+    at(compareAt, () => {                            // …and ride on WITH the divider: same 550ms & ease,
+      nodes.forEach(n => {                           // twice the distance, so twice the rate, landing together
+        if (n.show && n.kind === 'clone') { n.tx -= slideOff * 2; n.hold = true; } });
+      nodeSel.filter(d => d.kind === 'clone' && d.show)
+        .transition('enterright').duration(550)
+        .tween('x', d => { const x0 = d.x; return tt => { d.x = x0 + (d.tx - x0) * tt; }; })
+        .on('end interrupt', d => d.hold = false);
       sim.alpha(0.5).alphaTarget(0).restart();
     });
   }
@@ -1603,7 +1745,7 @@ function targetForce() {
   const add = (d, tx, ty, k, a) => { d.vx += (tx - d.x) * k * a; d.vy += (ty - d.y) * k * a; };
   const f = alpha => {
     for (const d of ns) {
-      if (!d.show) continue;
+      if (!d.show || d.hold) continue;             // hold: a staged tween is driving this node
       if (spoolActive && d.plan) {                 // planRev: play the same belt backwards (today → all)
         const end = d.plan[d.plan.length - 1].t0 + d.plan[d.plan.length - 1].dur;
         const pt = spoolPoint(d.plan, d.planRev ? Math.max(0, end - tickClock) : tickClock);
