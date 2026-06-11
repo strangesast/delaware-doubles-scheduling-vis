@@ -792,7 +792,8 @@ function splash(node) {                              // concentric rings ripple 
   if (reduceMotion() || !node) return;
   const x = node.x, y = node.y, rings = 2;
   for (let i = 0; i < rings; i++) {
-    gFx.append('circle').attr('cx', x).attr('cy', y).attr('fill', 'none')
+    gFx.append('circle').datum(node)               // bound to the node so it tracks live position while it lives
+      .attr('cx', x).attr('cy', y).attr('fill', 'none')
       .attr('stroke', RIPPLE[i % RIPPLE.length]).attr('stroke-width', NR * 0.3)
       .attr('r', NR * 0.9).attr('opacity', 0.55)
       .transition().delay(i * 130).duration(640).ease(d3.easeCubicOut)
@@ -1508,6 +1509,7 @@ function renderPositions() {
   gLinks.selectAll('line')
     .attr('x1', d => nodes[d.a].x).attr('y1', d => nodes[d.a].y)
     .attr('x2', d => nodes[d.b].x).attr('y2', d => nodes[d.b].y);
+  gFx.selectAll('circle').attr('cx', d => d.x).attr('cy', d => d.y);  // live ripples follow their circle (radius/fade keep transitioning)
 }
 
 // physics: gentle pull toward each slot + collision; slow, graceful glide
