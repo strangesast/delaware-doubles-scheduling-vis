@@ -20,7 +20,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 <style>
-  :root { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  :root { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+          --horizon: 45vh; }   /* where the sky meets the ground in the split scene (shared by CSS + JS) */
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; }
   body { margin: 0; color: #0f172a; background: #0b1220; }
@@ -154,9 +155,25 @@
              -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); -webkit-tap-highlight-color: transparent; }
   #tiltbtn i { font-style: normal; color: #60a5fa; font-size: 14px; }
 
+  /* the strategy toggle (first scene): a pill slider, OLD regime vs NEW, thumb sliding between */
+  #modes { position: fixed; z-index: 5; left: 50%; transform: translateX(-50%);
+           top: calc(14px + env(safe-area-inset-top, 0px)); display: none; align-items: center;
+           background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(148, 163, 184, 0.3);
+           border-radius: 999px; padding: 4px;
+           -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+  #modes button { position: relative; z-index: 1; border: 0; background: none; color: #94a3b8;
+                  cursor: pointer; font: 600 12.5px -apple-system, "Segoe UI", sans-serif;
+                  padding: 7px 14px; border-radius: 999px; transition: color .25s ease;
+                  -webkit-tap-highlight-color: transparent; white-space: nowrap; }
+  #modes button.on { color: #f1f5f9; }
+  #modethumb { position: absolute; top: 4px; bottom: 4px; border-radius: 999px;
+               background: rgba(96, 165, 250, 0.28); border: 1px solid rgba(96, 165, 250, 0.45);
+               transition: left .28s cubic-bezier(.2, .8, .2, 1), width .28s cubic-bezier(.2, .8, .2, 1); }
+
   /* the big time-lapse clock: large but muted, top-right under the tap note; vmin-sized so it fits
-     every resolution and orientation. Icy gradient fill behind a thin bright outline. */
-  #lapse { position: fixed; z-index: 1; right: 4vw; top: calc(64px + env(safe-area-inset-top, 0px));
+     every resolution and orientation. Icy gradient fill behind a thin bright outline.
+     Lives INSIDE #graphic, under the grain and the svg, so circles & links always paint over it. */
+  #lapse { position: absolute; right: 4vw; top: calc(64px + env(safe-area-inset-top, 0px));
            font-family: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
            font-weight: 700; letter-spacing: .02em;    /* bold numerals — universally available faces */
            font-size: clamp(44px, 10vmin, 104px); line-height: 1.2;   /* room for descenders — at 1 the
@@ -171,6 +188,34 @@
            color: transparent; -webkit-text-fill-color: transparent;
            -webkit-text-stroke: 0.5px rgba(226, 232, 240, 0.18);   /* hairline edge, barely there */
            pointer-events: none; display: none; }
+  /* split scene only: the whole backdrop becomes an early-evening sky. A low sun sinks from high
+     overhead to below the horizon while the page darkens — every value driven by the clock's own
+     night fraction (see setSky), so sun, sky and clock stay locked and loop together each night.
+     Lives inside #graphic behind the circles; fades in on body.sky, out otherwise. */
+  #skyscene { position: absolute; inset: 0; z-index: 0; opacity: 0; pointer-events: none;
+              overflow: hidden; transition: opacity .7s ease; }
+  body.sky #skyscene { opacity: 1; }
+  #sun { position: absolute; top: 0; left: 0; border-radius: 50%;
+         will-change: transform, filter; }               /* JS sets transform/size/blur/colour each frame */
+  /* the ground paints over the sun once it dips past the horizon, so it truly "sets" */
+  #ground { position: absolute; left: 0; right: 0; top: var(--horizon); bottom: 0;
+            box-shadow: 0 -1px 26px rgba(255, 200, 120, 0.14); }
+  /* grainy gradients (css-tricks.com/grainy-gradients): an SVG fractal-noise tile, desaturated and
+     forced fully opaque, then OVERLAY-blended so it lays down both light AND dark speckle — visible on
+     the bright daytime sky and the dark night alike (a plain screen-blend only showed on the dark end,
+     so it read as invisible). Sits behind the circles, over every scene, so the gradients read as
+     textured film instead of flat cartoon fills. */
+  #grain { position: absolute; inset: 0; z-index: 0; pointer-events: none;
+           background: url("data:image/svg+xml,%3Csvg viewBox='0 0 150 150' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='linear' slope='0' intercept='1'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+           background-size: 130px 130px;
+           mix-blend-mode: overlay; opacity: 0.85; }
+  /* the clock drops to float just above the horizon, where the sun is setting — and goes massive.
+     "X:XX" is ~2em wide, so 42vw keeps it inside the width on the narrowest phones; the 30vh cap keeps
+     the (line-height 1.2) box inside the space above the horizon in short landscape windows.
+     min() of the two ⇒ always the largest type that still fits, in any size or orientation. */
+  body.sky #lapse { top: auto; right: auto; left: 0; width: 100%; text-align: center;
+                    font-size: min(42vw, 30vh);
+                    bottom: calc(100vh - var(--horizon) + 8px); }
 
   /* chrome: title, progress, nav dots */
   .brand { position: fixed; top: 20px; left: 5vw; z-index: 3; color: #e2e8f0;
@@ -237,10 +282,17 @@
 <div id="progress"></div>
 <div class="brand">Delaware Doubles · <span>scheduling</span></div>
 <div id="hud"></div>
-<div id="lapse"></div>
+<div id="modes">
+  <span id="modethumb"></span>
+  <button data-m="old" class="on">OLD</button>
+  <button data-m="new">NEW</button>
+</div>
 <div id="tapnote"><i>✦</i> tap a circle or a game to change pairings</div>
 <button id="tiltbtn"><i>↕</i> Enable tilt</button>
 <div id="graphic">
+  <div id="skyscene"><div id="sun"></div><div id="ground"></div></div>
+  <div id="lapse"></div>
+  <div id="grain"></div>
   <svg>
     <defs>
       <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
@@ -341,6 +393,55 @@ const setHud = html => { hudEl.style.display = html == null ? 'none' : 'block'; 
 const lapseEl = document.getElementById('lapse');                // the big time-lapse clock
 const setLapse = txt => { lapseEl.style.display = txt == null ? 'none' : 'block'; if (txt != null) lapseEl.textContent = txt; };
 
+/* ── the OLD / NEW strategy toggle (arrivals & split scenes) ── */
+let stratMode = 'old';                             // 'old' three nines · 'new' every optimization
+let stratPicked = false;                           // a manual choice overrides the scenes' defaults
+const MODE_DEFAULT = { arrivals: 'old', split: 'new', payoff: 'new', firstgames: 'new' };
+                                                   // the opener shows the problem; the fix scenes, the fix
+const TOGGLE_GRID = new Set(['split', 'payoff', 'firstgames']);   // scenes whose grid follows the toggle
+let arrivalsRegroup = false;                       // a toggle mid-scene: keep the circles, glide & re-pair
+let splitRegroup = false;                          // …same, for the split scene's night
+const modesEl = document.getElementById('modes'), modeThumb = document.getElementById('modethumb');
+const PAYOFF_STAT = {                              // the payoff card's stat follows the toggle
+  new: { n: 2, tone: 'good', text: 'people wait — guaranteed, every single night' },
+  old: { n: 6, tone: 'bad',  text: 'people wait — even on the best night three nines can manage' },
+};
+function syncModesUI() {                           // show on the toggle scenes; seat the thumb
+  const key = scenes[current] && scenes[current].key;
+  const show = key === 'arrivals' || TOGGLE_GRID.has(key);
+  modesEl.style.display = show ? 'flex' : 'none';
+  if (!show) return;
+  if (!stratPicked && stratMode !== MODE_DEFAULT[key]) {   // untouched: each scene opens on its default
+    stratMode = MODE_DEFAULT[key];                         // (called before the scene lays out, so the
+    modesEl.querySelectorAll('button')                     //  grid follows)
+      .forEach(x => x.classList.toggle('on', x.dataset.m === stratMode));
+  }
+  const pi = scenes.findIndex(s => s.key === 'payoff');    // keep the payoff card honest in either mode
+  const st = document.querySelector(`section[data-i="${pi}"] .stat`), ps = PAYOFF_STAT[stratMode];
+  if (st) { st.className = 'stat ' + ps.tone;
+    st.querySelector('.num').textContent = ps.n; st.querySelector('.unit').textContent = ps.text; }
+  const tilt = document.getElementById('tiltbtn'); // stack below the iOS tilt button when it's up
+  modesEl.style.top = tilt && getComputedStyle(tilt).display !== 'none'
+    ? 'calc(58px + env(safe-area-inset-top, 0px))' : '';
+  const b = modesEl.querySelector('button.on');
+  modeThumb.style.left = b.offsetLeft + 'px'; modeThumb.style.width = b.offsetWidth + 'px';
+}
+modesEl.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+  stratPicked = true;                              // the user has spoken — defaults no longer apply
+  if (b.dataset.m === stratMode) return;
+  stratMode = b.dataset.m;
+  modesEl.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+  syncModesUI();
+  // re-apply the scene: applySeq cancels everything the old regime scheduled, however mid-flight
+  // it was — and the regroup flags tell the run hooks to keep the circles on stage rather than
+  // restart: they glide to their new grouping and re-pair as necessary
+  const k = scenes[current] && scenes[current].key;
+  if (k === 'arrivals') { arrivalsRegroup = true; applyScene(current); }
+  if (k === 'split')    { splitRegroup    = true; applyScene(current); }
+  if (k === 'payoff' || k === 'firstgames') applyScene(current);   // static scenes: circles glide,
+                                                                   // links crossfade
+}));
+
 /* ───────────────── the scenes (scroll stops) ───────────────── */
 const DIVRINGS = evenGroups(27, 3).map(g => splitGroups(g, 4));    // [[4,4],[4,4],[4,7]] — rings per division
 const FIX   = DIVRINGS.flat();                                     // [4,4,4,4,4,7]
@@ -351,6 +452,10 @@ const gridFor = dr => ({ byColumn: true, divisions: dr.length,
   ringDiv: dr.flatMap((rs, d) => rs.map(() => d)), ringRow: dr.flatMap(rs => rs.map((_, r) => r)),
   divRows: Math.max(...dr.map(rs => rs.length)) });
 const SPLITGRID = gridFor(DIVRINGS), BONUSGRID = gridFor(BONUS_DR);
+const NINEGRID = gridFor([[9], [9], [9]]);         // the OLD grouping, for the toggle scenes
+const sceneFor = sc => TOGGLE_GRID.has(sc.key) && stratMode === 'old'
+  ? { ...sc, sizes: [9, 9, 9], ...NINEGRID }       // same scene, the un-fixed grid of three nines
+  : sc;
 
 // ── the real Monday roster, in ring (schedule) order — T(i+1) ↔ TEAMS[i] ↔ node id i ──
 const TEAMS = [
@@ -511,7 +616,16 @@ const scenes = [
     stat:{ n:'9 → 1', tone:'bad', text:'stranded on a bad night — today vs optimized' },
     run: ({ at }) => {
       const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
-      const nbr = id => { const o = id - id % 9, j = id % 9; return [o + (j + 8) % 9, o + (j + 1) % 9]; };
+      // OLD: three nines, play your two ring neighbours. NEW: every optimization at once — even
+      // 8·8·11 divisions cut into pools of four (plus one seven), pairs swapping opponents.
+      // Same 27 teams, same arrival order; only the grouping differs.
+      const pools = stratMode === 'old'
+        ? [d3.range(0, 9), d3.range(9, 18), d3.range(18, 27)]
+        : [d3.range(0, 4), d3.range(4, 8), d3.range(8, 12), d3.range(12, 16), d3.range(16, 20), d3.range(20, 27)];
+      const home = {};                               // id → [its pool, its slot on that pool's ring]
+      pools.forEach((p, pi) => p.forEach((id, j) => home[id] = [pi, j]));
+      const nbr = id => { const [pi, j] = home[id], p = pools[pi], m = p.length;
+        return [p[(j + m - 1) % m], p[(j + 1) % m]]; };
       const arrived = new Set(), matched = new Set();
       const tally = () => setHud(`arrived <b>${arrived.size}</b> / 27 · playing <b>${matched.size}</b> · ` +
         `waiting <b>${arrived.size - matched.size}</b>` +
@@ -523,13 +637,24 @@ const scenes = [
       const st = stage(innerWidth, innerHeight);
       const top = Math.max(st.top, hudEl.getBoundingClientRect().bottom + 12);
       const W = st.right - st.left, H = st.bottom - top;
-      const r = Math.max(Math.min(W * 0.13, H * 0.16), 9 * (NR + 4.5) / Math.PI);
-      const C = [[st.left + W * 0.28, top + H * 0.50],
-                 [st.left + W * 0.72, top + H * 0.26],
-                 [st.left + W * 0.72, top + H * 0.74]];
+      let C, R;                                      // one centre + radius per pool ring
+      if (stratMode === 'old') {                     // the three nines, packed as a sideways triangle
+        const r = Math.max(Math.min(W * 0.13, H * 0.16), 9 * (NR + 4.5) / Math.PI);
+        C = [[st.left + W * 0.28, top + H * 0.50],
+             [st.left + W * 0.72, top + H * 0.26],
+             [st.left + W * 0.72, top + H * 0.74]];
+        R = [r, r, r];
+      } else {                                       // six pools: a column of two per division
+        const r4 = Math.max(Math.min(W * 0.085, H * 0.110), 4 * (NR + 4.5) / Math.PI);
+        const r7 = Math.max(Math.min(W * 0.120, H * 0.145), 7 * (NR + 4.5) / Math.PI);
+        C = [[st.left + W * 0.20, top + H * 0.27], [st.left + W * 0.20, top + H * 0.73],
+             [st.left + W * 0.50, top + H * 0.27], [st.left + W * 0.50, top + H * 0.73],
+             [st.left + W * 0.80, top + H * 0.25], [st.left + W * 0.80, top + H * 0.70]];
+        R = [r4, r4, r4, r4, r4, r7];
+      }
       const slot = id => {
-        const c = C[Math.floor(id / 9)], a = -Math.PI / 2 + (id % 9) * 2 * Math.PI / 9;
-        return [c[0] + r * Math.cos(a), c[1] + r * Math.sin(a)];
+        const [pi, j] = home[id], m = pools[pi].length, a = -Math.PI / 2 + j * 2 * Math.PI / m;
+        return [C[pi][0] + R[pi] * Math.cos(a), C[pi][1] + R[pi] * Math.sin(a)];
       };
       // the worst-case night, per nine — the same worst matching the "problem" scene shows:
       // pairs (T1,T2)(T4,T5)(T7,T8) form first, so T3, T6 and T9 each arrive to find both
@@ -585,8 +710,32 @@ const scenes = [
         renderColors(); tally();
         if (!RM) sim.alpha(0.4).alphaTarget(0).restart();
       };
-      seq.forEach((id, i) => {                       // 90% pile in within the first seconds; the rest trickle
-        const t = i < 24 ? 250 + i * 120 : 3300 + Math.pow(i - 23, 2.2) * 1400;
+      // toggled mid-scene: the circles already on stage stay — they glide to their new grouping's
+      // slots, keep any game the new grouping still allows, and the released re-pair one by one
+      // (computeLayout already reset show for the incoming scene — _wasShown is who's on stage)
+      const carried = arrivalsRegroup ? nodes.filter(n => n._wasShown && n.id < 27).map(n => n.id) : [];
+      arrivalsRegroup = false;
+      if (carried.length) {
+        carried.forEach(id => { const nd = nodes[id];          // un-hide before the fade paint runs;
+          arrived.add(id); nd.show = true; nd.op = 1;          // new slot → the sim glides them over
+          nd.state = 'wait'; [nd.tx, nd.ty] = slot(id);
+        });
+        prevEdgeKeys.forEach(k => {                            // games both groupings schedule survive
+          const [a, b] = k.split('-').map(Number);
+          if (arrived.has(a) && arrived.has(b) && nbr(a).includes(b)) {
+            matched.add(a); matched.add(b);
+            nodes[a].state = nodes[b].state = 'play'; LINKS.push({ a, b, op: 0.9 });
+          }
+        });
+        rewish(); tally();
+        if (!RM) sim.alpha(0.6).alphaTarget(0).restart();
+        let t = 500;                                           // the rest re-pair one after another
+        carried.forEach(id => { if (!matched.has(id)) { at(t, () => land(id)); t += 130; } });
+      }
+      const todo = seq.filter(id => !arrived.has(id));         // anyone still on the road arrives as usual
+      todo.forEach((id, i) => {                      // fresh night: 90% pile in within the first seconds,
+        const t = carried.length ? 1400 + i * 400    // the rest trickle (a regroup keeps it brisker)
+          : i < 24 ? 250 + i * 120 : 3300 + Math.pow(i - 23, 2.2) * 1400;
         at(t, () => spawn(id));
         at(t + 700, () => land(id));                 // colour resolves as it nears the ring
       });
@@ -657,7 +806,16 @@ const scenes = [
       // riding in from 8·8·11: those games ARE round one of the pool schedule (the identical id
       // pairs), so they simply stay connected through the regrouping — no break-and-rejoin
       const carried = fromScene && fromScene.key === 'rebalance';
-      if (carried) {
+      const regroup = splitRegroup; splitRegroup = false;
+      if (regroup) {                               // OLD ⇄ NEW toggle: the circles stay on stage and
+        groups.forEach(g => { g.colored = true; g.mask = 0; });   // glide to the new grouping…
+        prevEdgeKeys.forEach(k => {                // …keeping only games that ARE round one of the new
+          const [a, b] = k.split('-').map(Number); // schedule — anything else would clash with the
+          const e = edgeBit(a, b);                 // round-one games about to connect (two links on
+          if (e && e[1] % 2 === 0 && e[1] + 1 < e[0].m) e[0].mask |= 1 << e[1];   // one team)
+        });
+        deriveFromGroups();
+      } else if (carried) {
         groups.forEach(g => { g.colored = true; g.mask = 0; });
         rounds[0].forEach(([g, k]) => g.mask |= 1 << k);
         deriveFromGroups();
@@ -666,6 +824,10 @@ const scenes = [
       }
       const playRound = (games, t0, preset) => {   // connect each game (unless already on), run its clock,
         const clockAt = [];                        // end it on its own time; returns when the last one ends
+        // connect them left → right across the screen: order by each game's horizontal midpoint so the
+        // stagger reads as a wave sweeping across the courts rather than a per-pool jumble
+        const gameX = ([g, k]) => (nodes[g.members[k]].tx + nodes[g.members[(k + 1) % g.m]].tx) / 2;
+        games = [...games].sort((A, B) => gameX(A) - gameX(B));
         if (preset) games.forEach((_, i) => clockAt[i] = t0);
         else games.forEach(([g, k], i) => { at(t0, () => step(() => g.mask |= 1 << k)); clockAt[i] = t0 + 250; t0 += 140; });
         let over = 0;
@@ -693,22 +855,77 @@ const scenes = [
       const dusk = f => Math.pow(f, 1.7);          // hold the light: real darkness only lands ~8:30
       const sky = f => `linear-gradient(180deg, ${tint(skyUp(dusk(f)), 0.34)} 0%, ${tint(skyUp(dusk(f)), 0.34)} 38%, `
         + `${tint(skyBand(dusk(f)), 0.38)} 60%, ${tint(skyGlow(dusk(f)), 0.40)} 68%, ${tint(skyGlow(dusk(f)), 0.40)} 100%)`;
+      // the page itself becomes that same sky, only brighter and full-frame: a low sun drops from
+      // high overhead to below the horizon as the night runs. setSky(n) takes the SAME 0→1 night
+      // fraction the clock rides (see the timer below), so sun, sky and clock move as one and loop
+      // together every night — n=0 is 6pm first serve, n=1 is closing time.
+      const HORIZON = 45;                          // vh — must match --horizon in the CSS
+      // muted, desaturated palettes — soft hazy daylight easing into dusk, never poster-bright
+      const skyTop  = ramp(['#8fb0c6', '#8f9cb4', '#8d7e96', '#454260', '#0d1322']);  // soft day haze → mauve dusk → night
+      const skyHaze = ramp(['#c7d6da', '#e6ceac', '#d39473', '#9a6878', '#121927']);  // pale haze → muted gold → clay → rose → dark
+      const grndCol = ramp(['#6c7f68', '#6e7458', '#73604f', '#3b3f4c', '#0d1320']);  // sage field → dry dusk → earthy → dark
+      const sunCol  = ramp(['#fdf3da', '#f6ddab', '#e7b079', '#d6855f', '#c16151']);  // warm white → soft amber → muted clay
+      const skyEl = document.getElementById('skyscene'),
+            sunEl = document.getElementById('sun'),
+            grndEl = document.getElementById('ground');
+      const setSky = n => {                         // n: 0 at first serve → 1 at closing
+        const d = dusk(n);                          // hold the light then fall fast — exactly as the clock fill does
+        skyEl.style.background = `linear-gradient(180deg, ${skyTop(d)} 0%, ${skyTop(d)} 30%, `
+          + `${skyHaze(d)} ${HORIZON}%, ${skyHaze(d)} 100%)`;
+        const gc = grndCol(d);                      // ground keeps a thin ember of the sun's colour at its lip
+        grndEl.style.background = `linear-gradient(180deg, ${tint(sunCol(d), 0.5)} 0%, ${gc} 14%, ${gc} 100%)`;
+        // a massive soft orb: diffuse, hazy halo when high overhead, tightening into a clear-edged
+        // disc as it nears the horizon. Positioned by transform (not top/left) and lit by the gradient
+        // itself — no box-shadow — so nothing repaints a giant blur each frame and the edge never flickers.
+        const c = sunCol(d), sz = 36 + n * 18;       // already large; swells further toward the horizon
+        const x = 50 + (n - 0.5) * 64;               // sweep west: arcing from the left across to the right (vw)
+        const y = 16 + (HORIZON + 6) * Math.pow(n, 1.5);     // glide high, then curve down to set (vh)
+        const core = 26 + n * 34;                    // solid-colour core %: diffuse up high → crisp & defined low
+        sunEl.style.width = sunEl.style.height = sz + 'vmin';
+        sunEl.style.transform = `translate(${x}vw, ${y}vh) translate(-50%, -50%)`;
+        sunEl.style.background = `radial-gradient(circle, ${c} 0%, ${c} ${(core * 0.55).toFixed(1)}%, `
+          + `${tint(c, 0.5)} ${core.toFixed(1)}%, ${tint(c, 0)} 80%)`;
+        sunEl.style.filter = `blur(${((1 - n) * 4.5 + 0.4).toFixed(2)}vmin)`;  // hazy high in the sky → clear near the horizon
+      };
+      const paintClock = n => {                    // clock text + fill from a night fraction (drives the rewind/dawn)
+        const m3 = stratMode === 'old' ? 570 : 540;   // closing minutes; 6:00pm = 360 is the floor
+        const m = Math.round(360 + n * (m3 - 360));
+        setLapse(`${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`);
+        lapseEl.style.backgroundImage = sky((m - 360) / (m3 - 360));
+      };
+      // reverse the whole sunset — sun arcs back up, sky re-brightens, clock spins down to 6 — fast.
+      // Used twice: the dawn that OPENS the scene (darkness → daylight) and the quick rewind that
+      // resets each looped night so day and night flow into one another instead of snapping.
+      const toDay = (dur, done) => {
+        const seqAt = applySeq;
+        const tmr = d3.timer(el => {
+          if (applySeq !== seqAt) return tmr.stop();
+          const r = clamp(1 - el / dur, 0, 1);     // 1 (closing / night) → 0 (6pm / full day)
+          setSky(r); paintClock(r);
+          if (el >= dur) { tmr.stop(); if (done) done(); }
+        });
+      };
+      document.body.classList.add('sky'); setSky(1);   // open on darkness — matching the other scenes' night sky
       const lapse = (a, b, c) => {                 // the background clock, a time lapse of the night:
-        const seqAt = applySeq;                    // 6pm first serves · ~8pm the fours are done (nobody
-        let shown = '';                            // waited) · ~9pm the sitters finish their second game
+        const seqAt = applySeq;                    // 6pm first serves; then NEW — most done by 8, the two
+        let shown = '';                            // sitters by 9 · OLD — the nines stretch to 8:30, their
+        const [m2, m3] = stratMode === 'old'       // six sitters closer to 9:30, as it gets dark
+          ? [510, 570] : [480, 540];
         const tmr = d3.timer(el => {               // dies (and hides) the moment any scene re-applies —
           if (applySeq !== seqAt) { setLapse(null); return tmr.stop(); }   // a scroll, a resize…
-          const [p, q] = el <= b ? [[a, 360], [b, 480]] : [[b, 480], [c, 540]];   // ms → minutes past noon
+          const [p, q] = el <= b ? [[a, 360], [b, m2]] : [[b, m2], [c, m3]];   // ms → minutes past noon
           const f = clamp((el - p[0]) / (q[0] - p[0]), 0, 1);
-          const m = Math.round(p[1] + f * (q[1] - p[1]));
-          const txt = `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')} pm`;
+          const mc = p[1] + f * (q[1] - p[1]);     // continuous minutes — smooth sun, before the clock rounds
+          setSky(clamp((mc - 360) / (m3 - 360), 0, 1));   // sink the sun & darken the page, locked to the clock
+          const m = Math.round(mc);
+          const txt = `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
           if (txt !== shown) {
             setLapse(shown = txt);
             // longhand only: the `background` shorthand would reset background-clip:text and
             // flood the whole box with the gradient instead of just the glyphs
-            lapseEl.style.backgroundImage = sky((m - 360) / 180);   // the sky darkens with the hour
+            lapseEl.style.backgroundImage = sky((m - 360) / (m3 - 360));   // the sky darkens with the hour
           }
-          if (el >= c) tmr.stop();                 // hold at 9:00 until the next night resets it
+          if (el >= c) tmr.stop();                 // hold at closing time until the next night resets it
         });
       };
       const play = first => {                      // one full night: round one, the swap, the wrap game —
@@ -719,9 +936,10 @@ const scenes = [
         const t2 = playRound(rounds[1], t1 + 600);
         const t3 = rounds[2].length ? playRound(rounds[2], t2 + 600) : t2;
         lapse(t0, t2, t3);
-        at(t3 + 1600, () => play(false));          // …then the next night plays out
+        at(t3 + 400, () => toDay(900));            // the night holds at closing, then rewinds quickly to dawn…
+        at(t3 + 1500, () => play(false));          // …then the next night plays forward from daylight
       };
-      play(true);
+      toDay(1400, () => play(true));               // dawn breaks first: darkness rises into full daylight, then night one
     } },
 
   { key:'zoom', sizes:FIX, cols:3, colored:true, match:'best', interactive:true, focus:0, ...SPLITGRID,
@@ -756,13 +974,15 @@ const scenes = [
     kicker:'The payoff', title:'Exactly one team ever waits',
     body:'A pool of four can never strand anyone, no matter who shows up. Only the one leftover pool of seven carries a wait.',
     stat:{ n:2, tone:'good', text:'people wait — guaranteed, every single night' },
-    run: ({ at }) => {                             // call out the lone waiting team with a brief shake
+    run: ({ at }) => {                             // call out whoever waits with a periodic shake
       if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-      at(1300, () => {                             // once the entrance has settled
-        const lone = nodeSel.filter(d => d.show && d.state === 'wait');
-        const parts = lone.selectAll('circle, text:not(.nname)').style('animation', 'shake .8s ease-in-out');
+      const nudge = () => {                        // re-read who waits each beat — taps re-pair people
+        const parts = nodeSel.filter(d => d.show && d.state === 'wait')
+          .selectAll('circle, text:not(.nname)').style('animation', 'shake .8s ease-in-out');
         at(900, () => parts.style('animation', null));
-      });
+        at(2800, nudge);
+      };
+      at(1300, nudge);                             // once the entrance has settled, then on a loop
     } },
 
   { key:'bonus', sizes:BONUS, cols:3, colored:true, match:'best', extra:true, interactive:true, ...BONUSGRID,
@@ -948,13 +1168,14 @@ let stagedEnterDelay = 0;        // …and hold entering games until their circl
 let onNewGame = null;            // clock scenes hook this: called for every game that forms live
 
 const RIPPLE = ['#34d399', '#86efac', '#6ee7b7'];   // the pairing-link greens
-function splash(node) {                              // concentric rings ripple outward from a circle as it connects
+const RIPPLE_WAIT = ['#fb923c', '#fdba74'];         // waiting orange — "nobody to play with over here"
+function splash(node, colors = RIPPLE) {             // concentric rings ripple outward from a circle as it connects
   if (reduceMotion() || !node) return;
   const x = node.x, y = node.y, rings = 2;
   for (let i = 0; i < rings; i++) {
     gFx.append('circle').datum(node)               // bound to the node so it tracks live position while it lives
       .attr('cx', x).attr('cy', y).attr('fill', 'none')
-      .attr('stroke', RIPPLE[i % RIPPLE.length]).attr('stroke-width', NR * 0.3)
+      .attr('stroke', colors[i % colors.length]).attr('stroke-width', NR * 0.3)
       .attr('r', NR * 0.9).attr('opacity', 0.55)
       .transition().delay(i * 130).duration(640).ease(d3.easeCubicOut)
         .attr('r', NR * (3.1 + i * 0.7))           // expand past the rim, thinning and fading like water
@@ -964,19 +1185,29 @@ function splash(node) {                              // concentric rings ripple 
 }
 function buzz() { if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) {} } }
 
+// the waiting-team callout, everywhere: every few beats, whatever the scene, a soft orange ripple
+// from each visible team stuck without a game — states are read live, so it follows the story
+(function waitPulse() {
+  let i = 0;
+  nodes.forEach(nd => {
+    if (nd.show && nd.state === 'wait') setTimeout(() => splash(nd, RIPPLE_WAIT), i++ * 130);
+  });
+  setTimeout(waitPulse, 2800);
+})();
+
 // a game's clock: the link widens into a bar (track) and a bright fill creeps from a to b; when it
 // arrives, time is up and onDone fires. Self-placing every frame so it follows the circles — and
 // self-cancelling, WITHOUT firing onDone, if the game ends early (a tap broke it) or the scene moves
 // on. One clock per live game, so taps and scripts can't double up.
-const activeClocks = new Set();
+const activeClocks = new Map();                      // key → its stop(); applyScene sweeps the lot
 function gameClock(a, b, dur, onDone) {
   const key = Math.min(a, b) + '-' + Math.max(a, b);
   if (activeClocks.has(key)) return;
-  activeClocks.add(key);
   const A = nodes[a], B = nodes[b], sceneAt = current, rm = reduceMotion();
   const track = rm ? null : gProg.append('line').attr('class', 'track');
   const fill  = rm ? null : gProg.append('line').attr('class', 'prog');
   const stop = () => { activeClocks.delete(key); tmr.stop(); if (track) { track.remove(); fill.remove(); } };
+  activeClocks.set(key, stop);
   const tmr = d3.timer(el => {
     if (current !== sceneAt || !gameOn(a, b)) return stop();   // broken early / scene left — no onDone
     const t = Math.min(1, el / dur);
@@ -1279,9 +1510,12 @@ function applyScene(i) {
   const { at } = sceneTimer();                       // this scene's timer scope; cancels all earlier ones
   setHud(null);                                      // scenes that use the HUD repopulate it from their run hook
   setLapse(null);                                    // …same for the time-lapse clock
+  document.body.classList.remove('sky');             // …and the split scene's sky/sun backdrop (its run re-adds it)
   document.getElementById('tapnote').style.display = sc.interactive ? 'block' : 'none';
+  syncModesUI();                                     // the OLD/NEW toggle lives on the arrivals scene
   sim.force('attract', null);                        // scene-scoped link attraction — a run hook may reinstall it
-  gProg.selectAll('line').interrupt().remove();      // game clocks (track + fill) are scene-scoped too
+  [...activeClocks.values()].forEach(stop => stop());   // game clocks are scene-scoped: force-stop their
+  gProg.selectAll('line').interrupt().remove();      // timers (covers same-scene re-applies) + sweep lines
   onNewGame = null;                                  // …as is the new-game hook that spawns them
   // roster-list scenes use the chip overlay; entering divisions from the flat list is staged —
   // the list first opens gaps at the division boundaries, then rearranges into columns
@@ -1296,13 +1530,14 @@ function applyScene(i) {
   renderNameGrid(fromFlat ? 'flatgap' : sc.names || null, { instant: listToRings, fromNodes: nodeFrom });
   if (fromFlat) at(1100, () => renderNameGrid('divisions'));
   const relayout = () => {                           // re-run this scene's layout mid-script (its state changed)
-    computeLayout(sc); renderColors();
+    computeLayout(sceneFor(sc)); renderColors();
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) { nodes.forEach(n => { n.x = n.tx; n.y = n.ty; }); renderPositions(); }
     else sim.alpha(0.5).alphaTarget(0).restart();
   };
   // arriving from the split-screen setup: T1 first pauses just outside the rim, then pairs with T4
   const stagedArrive = sc.key === 'latearrival' && !!fromSc && fromSc.key === 'twoworlds';
-  const { guides, caps, divider, boxes = [] } = computeLayout(stagedArrive ? { ...sc, paired: false } : sc);
+  const scv = sceneFor(sc);                          // the split scene swaps grids with the OLD/NEW toggle
+  const { guides, caps, divider, boxes = [] } = computeLayout(stagedArrive ? { ...scv, paired: false } : scv);
   if (stagedArrive) at(1800, relayout);              // T1 + T4 step onto the ring and connect
   // pulling back from the split screen's "late" beat: keep its T2–T3 / T4–T1 games on the ring of four
   if (fromDetail && fromSc.stage === 'late' && groups.length && groups[0].m === 4) groups[0].mask = (1<<1)|(1<<3);
