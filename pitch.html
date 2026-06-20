@@ -148,7 +148,7 @@
   @keyframes bob { 0%,100%{ transform: translateY(0); } 50%{ transform: translateY(4px); } }
 
   /* iOS-only opt-in to motion access (shown by script when the permission API exists) */
-  #tiltbtn { position: fixed; z-index: 5; display: none; left: 50%; transform: translateX(-50%);
+  #tiltbtn { position: fixed; z-index: 5; display: none; right: calc(14px + env(safe-area-inset-right, 0px));
              top: calc(16px + env(safe-area-inset-top)); align-items: center; gap: 7px; cursor: pointer;
              background: rgba(15,23,42,0.82); border: 1px solid rgba(148,163,184,0.3); border-radius: 999px;
              color: #cbd5e1; font: 600 12.5px -apple-system, "Segoe UI", sans-serif; padding: 9px 16px;
@@ -420,9 +420,6 @@ function syncModesUI() {                           // show on the toggle scenes;
   const st = document.querySelector(`section[data-i="${pi}"] .stat`), ps = PAYOFF_STAT[stratMode];
   if (st) { st.className = 'stat ' + ps.tone;
     st.querySelector('.num').textContent = ps.n; st.querySelector('.unit').textContent = ps.text; }
-  const tilt = document.getElementById('tiltbtn'); // stack below the iOS tilt button when it's up
-  modesEl.style.top = tilt && getComputedStyle(tilt).display !== 'none'
-    ? 'calc(58px + env(safe-area-inset-top, 0px))' : '';
   const b = modesEl.querySelector('button.on');
   modeThumb.style.left = b.offsetLeft + 'px'; modeThumb.style.width = b.offsetWidth + 'px';
 }
